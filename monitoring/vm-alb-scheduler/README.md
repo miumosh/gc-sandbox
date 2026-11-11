@@ -3,6 +3,7 @@
 > ステータス: **検証完了・環境は削除済み**（2026-11-10 UTC に実施）
 > - 検証結果（時系列・遅延の実測値）: [`RESULTS.md`](RESULTS.md)
 > - 知見（ログの形式・挙動・注意点）: [`KNOWLEDGE.md`](KNOWLEDGE.md)
+> - 監視設計の推奨・月次メンテナンス時の静観/注視: [`monitoring-and-maintenance.md`](monitoring-and-maintenance.md)
 > - Datadog のサンプル（未適用）: [`datadog/README.md`](datadog/README.md)
 
 ## 0. 結論（要約）

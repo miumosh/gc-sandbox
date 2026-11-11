@@ -31,26 +31,15 @@
 
 ## 2. 監視するメトリクスの詳細
 
-M2 は GCP の指標をそのまま使う。M1・M3・M4 は「条件に一致したログの件数」を Log Monitor で評価するため、その件数を監視対象メトリクスとして同じ表に載せている。ログの条件は「3. ログ収集・ログ監視」を参照。
+指標（メトリクス）で監視するのは M2 だけ。M1・M3・M4 はログ監視なので「3. ログ収集・ログ監視」に記載する。
 
-| ID | 監視名 | 監視対象メトリクス | 評価期間 | アラート判定条件 | 閾値（危険） | 閾値（警告） | 備考 |
-|---|---|---|---|---|---|---|---|
-| M1 | 内部 ALB 5xx 応答 | ログ件数: 内部 ALB のリクエストログのうち `httpRequest.status` が 500〜599 のもの（3 章 L1 の条件）<br>`rollup("count")` | 直近 5 分（`last("5m")`） | 5 分間の件数 ≧ 閾値 | **≧ 20 件／5 分**<br>（全台停止など、5xx が継続する状態） | **≧ 1 件／5 分**<br>（1 台停止の瞬間やアプリ停止の切り替わりで出る数件） | 検証時の実測（2 秒ごとのリクエスト）: 全台停止は約 30 件／分、アプリ停止は 4 件、VM 停止（1 台）は 1 件。危険の閾値は本番のリクエスト量に合わせて調整する（量が多いなら比率監視も検討）。Recovery は 0 件 |
-| M2 | VM 停止（Uptime 途絶） | `gcp.gce.instance.uptime`（GCP: `compute.googleapis.com/instance/uptime`）<br>`instance_name` 別 | 直近 10 分（`last_10m`）<br>evaluation_delay 300 秒（GCP 指標の取り込み遅延を吸収。要調整） | `instance_name` ごとに指標が途絶えた（No Data）<br>クエリ例: `avg(last_10m):avg:gcp.gce.instance.uptime{project_id:miumosh-sb-test01,instance_name:vas-web-*} by {instance_name} < 0` ＋ `notify_no_data` | **No Data が 15 分継続**（`no_data_timeframe = 15`） | 設定しない<br>（No Data の判定には警告レベルが無い） | GCP 側（A5、途絶 180 秒）の実測は停止から約 8.7 分。Datadog では取り込み遅延が加わるので、さらに数分遅くなる想定（未検証）。計画停止（月次メンテナンス）の間は Downtime で抑止する。VM を削除した場合も発報する |
-| M3 | Scheduler ジョブ失敗 | ログ件数: Scheduler の実行ログのうち AttemptFinished が ERROR のもの（3 章 L2 の条件）<br>`rollup("count")`、`job_id` 別 | 直近 5 分（`last("5m")`） | 5 分間の件数 ≧ 閾値 | **≧ 1 件／5 分** | 設定しない<br>（ジョブは 1 回きりの実行で、1 件の失敗がそのまま起動・停止の失敗を意味する） | `retry_count = 0` のため、1 回の失敗で確定する。検証の実測（GCP 側 S1）は失敗から約 35〜49 秒。メンテナンス中も抑止しない |
-| M4 | Compute 起動・停止の失敗 | ログ件数: Compute の監査ログ（管理アクティビティ）のうち `instances.start`／`instances.stop` が ERROR のもの（3 章 L3 の条件）<br>`rollup("count")`、`protoPayload.resourceName` 別 | 直近 5 分（`last("5m")`） | 5 分間の件数 ≧ 閾値 | **≧ 1 件／5 分** | 設定しない<br>（起動・停止の失敗は 1 件でも対応が必要） | 検証の実測（GCP 側 S3）は失敗から約 20〜49 秒（403 で確認）。受付後の処理の失敗（非同期の Operation の失敗）は未再現。メンテナンス中も抑止しない |
+| ID | 監視名 | 監視対象メトリクス | 評価期間 | アラート判定条件 | 閾値（危険） | 閾値（警告） |
+|---|---|---|---|---|---|---|
+| M2 | VM 停止（Uptime 途絶） | `gcp.gce.instance.uptime`（GCP: `compute.googleapis.com/instance/uptime`）<br>対象: `project_id:miumosh-sb-test01`、`instance_name:vas-web-*`<br>`instance_name` 別に評価 | 直近 10 分（`last_10m`）<br>evaluation_delay 300 秒（GCP 指標の取り込み遅延を吸収。要調整） | `instance_name` ごとに指標が途絶えたら（No Data）発報<br>クエリ例: `avg(last_10m):avg:gcp.gce.instance.uptime{project_id:miumosh-sb-test01,instance_name:vas-web-*} by {instance_name} < 0` ＋ `notify_no_data = true` | **No Data が 15 分継続**（`no_data_timeframe = 15`） | 設定しない（No Data の判定には警告レベルが無い） |
 
-### 2.1 共通設定（Datadog モニター）
-
-| 項目 | M1 | M2 | M3 | M4 |
-|---|---|---|---|---|
-| モニタータイプ | `log alert` | `query alert` | `log alert` | `log alert` |
-| `notify_no_data` | false | **true**（判定そのもの） | false | false |
-| `require_full_window` | – | false | – | – |
-| `enable_logs_sample` | true（通知に該当ログを添付） | – | true | true |
-| `renotify_interval` | 60 分 | 60 分 | 0（再通知なし） | 0（再通知なし） |
-| グループ化 | なし（全台停止では `backend_name` が空になるため） | `instance_name` | `@data.resource.labels.job_id` | `@data.protoPayload.resourceName` |
-| 月次メンテナンス中 | Downtime（ローリング実施なら抑止しない） | Downtime | **抑止しない** | **抑止しない** |
+- 遅延: GCP 側（A5、途絶 180 秒）の実測は停止から約 8.7 分。Datadog では取り込み遅延が加わるので、さらに数分遅くなる想定（未検証）
+- 計画停止（月次メンテナンス）の間は Downtime で抑止する。VM を削除した場合も発報する
+- その他の設定: `require_full_window = false`、`renotify_interval = 60`（分）
 
 ---
 
@@ -78,7 +67,19 @@ M2 は GCP の指標をそのまま使う。M1・M3・M4 は「条件に一致�
 | L3 | `methodName` を `*compute.instances.start`／`*compute.instances.stop` の後方一致にする | API のバージョンで接頭辞が変わる（`v1.`、`beta.`）。後方一致にすると `instances.startWithEncryptionKey` などの別メソッドは拾わない |
 | L3 | `severity:ERROR` | 正常な起動・停止は、処理開始（`operation.first=true`）と完了（`operation.last=true`）の 2 件が NOTICE で出る。403 で拒否されると ERROR が 1 件出て、`protoPayload.status.code=7` が付く（検証で確認）。受付後の処理の失敗は、完了ログが ERROR になる想定（未再現） |
 
-### 3.2 GCP 側のログ転送（Log Router シンク）
+### 3.2 ログ監視の通知条件（Datadog Log Monitor）
+
+上の表のエラー判定文字列（除外文字列を適用した後）に一致したログの件数で発報する。
+
+| ID | 集計 | グループ化 | 閾値（危険） | 閾値（警告） | 補足 |
+|---|---|---|---|---|---|
+| L1（M1） | 直近 5 分の件数（`rollup("count").last("5m")`） | なし（全台停止では `backend_name` が空になるため） | ≧ 20 件／5 分（全台停止など、5xx が継続する状態） | ≧ 1 件／5 分（1 台停止の瞬間やアプリ停止の切り替わり） | 検証時の実測（2 秒ごとのリクエスト）: 全台停止は約 30 件／分、アプリ停止は 4 件、VM 1 台の停止は 1 件。危険の閾値は本番のリクエスト量で見直す。`renotify_interval = 60` |
+| L2（M3） | 直近 5 分の件数 | `@data.resource.labels.job_id` | ≧ 1 件 | 設定しない（1 件の失敗がそのまま起動・停止の失敗を意味する） | `retry_count = 0` なので 1 回の失敗で確定。GCP 側（S1）の実測は失敗から約 35〜49 秒 |
+| L3（M4） | 直近 5 分の件数 | `@data.protoPayload.resourceName` | ≧ 1 件 | 設定しない（同上） | GCP 側（S3）の実測は失敗から約 20〜49 秒（403 で確認） |
+
+共通: `enable_logs_sample = true`（通知に該当ログを添付）、`notify_no_data = false`。月次メンテナンス中の扱いは 5 章。
+
+### 3.3 GCP 側のログ転送（Log Router シンク）
 
 Datadog に送るログは、シンクのフィルタで 3 種類に絞る（Dataflow の処理量と Datadog の取り込み量を抑えるため）。[datadog/log_forwarding.tf](datadog/log_forwarding.tf) の `forward_filter` に相当する。
 

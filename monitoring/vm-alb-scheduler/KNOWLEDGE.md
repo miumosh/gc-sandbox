@@ -42,6 +42,7 @@ network_name, project_id, region, target_proxy_name, url_map_name
 | 正常 | 200 | なし | IG 名 |
 | 全台停止（正常なバックエンドがない） | 503 | `error="destination_unavailable"; details="failed_to_pick_backend"` … **ただし空のことがある**（同じ全台停止中に、前半は空で後半は値あり） | `""` |
 | アプリ停止の直後（HC が UNHEALTHY と判定する前の約 8 秒間） | 503 | `error="connection_refused"; details="failed_to_connect_to_backend"` | 対象の IG 名 |
+| **VM 停止のシャットダウン中**（アプリが先に止まった場合。2 回中 1 回で 1 件発生） | 503 | 同上 | 対象の IG 名 |
 | VM のシャットダウン中にクライアントがタイムアウト | なし | `error="connection_terminated"; details="client_disconnected_before_any_response"` | 対象の IG 名 |
 
 → **5xx の検知には `httpRequest.status>=500` を使う**。`proxyStatus` はいつも出るとは限らないので、条件にしない。
@@ -93,7 +94,7 @@ request_bytes_count / request_count / response_bytes_count / total_latencies
 ### 2.2 重要な挙動
 
 1. **VM を停止（TERMINATED）しても、UNHEALTHY 遷移のログは出ない**。停止した VM はヘルスチェックの対象から外れ、`gcloud compute backend-services get-health` の結果からも消える。そのため、**Scheduler による VM 停止はヘルスチェックログでは検知できない**
-2. **VM が動いていてアプリが応答しない** 場合は、約 10 秒（間隔 5 秒 × しきい値 2 回）で `HEALTHY→UNHEALTHY(TIMEOUT)` のログが出る
+2. **VM が動いていてアプリが応答しない** 場合（ファイアウォール削除などでヘルスチェックが届かない場合も同じ。destroy 時に確認）は、約 10 秒（間隔 5 秒 × しきい値 2 回）で `HEALTHY→UNHEALTHY(TIMEOUT)` のログが出る
 3. **起動時** は `UNHEALTHY(UNKNOWN)→UNHEALTHY(TIMEOUT)` のように、`healthState` が変わらず詳細状態だけが変わってもログが出る。`healthState="UNHEALTHY"` だけで絞ると、**起動のたびに誤検知する**
    → **`previousHealthState="HEALTHY"` の条件を加え、HEALTHY から UNHEALTHY への遷移だけを拾う**
 4. 起動後 HEALTHY になるまでの時間: start の指示から約 45〜50 秒（e2-micro / Debian 12 / python http.server の場合）

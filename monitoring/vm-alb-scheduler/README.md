@@ -5,6 +5,8 @@
 > - 知見（ログの形式・挙動・注意点）: [`KNOWLEDGE.md`](KNOWLEDGE.md)
 > - 監視設計の推奨・月次メンテナンス時の静観/注視: [`monitoring-and-maintenance.md`](monitoring-and-maintenance.md)
 > - Datadog のサンプル（未適用）: [`datadog/README.md`](datadog/README.md)
+> - 取得したログ（実体は Git 管理外）と取得スクリプト: [`logs/README.md`](logs/README.md)
+> - 作業と監視結果の時系列表: [`test-history.md`](test-history.md)
 
 ## 0. 結論（要約）
 

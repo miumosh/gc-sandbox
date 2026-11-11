@@ -1,0 +1,5 @@
+# 検証ログ（プロジェクト ID / IP / SA メール等を含むため Git 管理外）
+*
+!.gitignore
+!README.md
+!export-logs.sh

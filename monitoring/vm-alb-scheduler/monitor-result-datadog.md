@@ -30,7 +30,7 @@
 | ID | モニター名 | タイプ | 判定 | 危険 | 警告 | メンテナンス中 |
 |---|---|---|---|---|---|---|
 | M1 | `[M1][log] 内部ALB 5xx応答` | Log Monitor | 5 分間の 5xx ログ件数 | ≧ 20 | ≧ 1 | 2 台同時停止なら Downtime |
-| M2 | `[M2][metric] VM停止（Uptime途絶）` | Metric Monitor | VM 別の No Data | No Data 15 分 | – | Downtime |
+| M2 | `[M2][metric] VM停止（Uptime途絶）` | Metric Monitor | VM 別の直近 10 分の平均（停止中は 0 扱い） | ≦ 0 | ≦ 30 | Downtime |
 | M3 | `[M3][log] Cloud Schedulerジョブ失敗` | Log Monitor | 5 分間のエラーログ件数 | ≧ 1 | – | 抑止しない |
 | M4 | `[M4][log] Compute起動停止の失敗（監査ログ）` | Log Monitor | 5 分間のエラーログ件数 | ≧ 1 | – | 抑止しない |
 
@@ -39,7 +39,7 @@
 | ID | 監視 | エラー判定文字列 | 除外文字列 | 解説 |
 |---|---|---|---|---|
 | M1 | ALB のリクエストログ 5xx 系 | `@resource.type:internal_http_lb_rule @resource.labels.forwarding_rule_name:vas-fr-http @httpRequest.status:>=500` | `-@httpRequest.userAgent:GoogleStackdriverMonitoring*` | ・`@resource.type:internal_http_lb_rule`: 内部 ALB のリクエストログに絞る<br>・`@resource.labels.forwarding_rule_name:vas-fr-http`: 対象の ALB（転送ルール）に絞る。内部 ALB のログにはバックエンドサービス名のラベルが無いため、転送ルール名で絞る<br>・`@httpRequest.status:>=500`: ALB がクライアントに返した HTTP ステータスが 5xx のもの<br>・`status:error` を使わない理由: 5xx でもログレベルが WARNING になるため（検証時の 5xx 174 件すべて WARNING）<br>・除外: GCP の Uptime Check からのアクセスを併用する場合、全台停止時に 5xx を重複して数えるので外す（併用しなければ不要） |
-| M2 | Compute Engine の Uptime | –（メトリクス監視: `gcp.gce.instance.uptime` の No Data） | – | ・ログではなく指標で監視する。VM が停止すると uptime 指標が届かなくなるので、VM ごとに「15 分間届かない」ことを検知する<br>・ALB のヘルスチェックログは VM 停止（TERMINATED）では出ないため、VM 停止の検知はこの監視が担う |
+| M2 | Compute Engine の Uptime | –（メトリクス監視: `avg(last_10m):default_zero(avg:gcp.gce.instance.uptime{project_id:miumosh-sb-test01,instance_name:vas-web-*} by {instance_name}) <= 0`） | – | ・ログではなく指標で監視する。uptime は 1 分ごとの「その 1 分間に VM が動いていた秒数」で、動いていれば約 60。停止すると値が届かなくなるので、`default_zero()` で届かない時間を 0 として扱い、直近 10 分の平均が 30 以下で警告、0 以下で危険とする<br>・ALB のヘルスチェックログは VM 停止（TERMINATED）では出ないため、VM 停止の検知はこの監視が担う |
 | M3 | Cloud Scheduler のジョブの実行ログ | `@resource.type:cloud_scheduler_job @resource.labels.job_id:vas-web-* status:(error OR critical OR alert OR emergency)` | `-@resource.labels.job_id:vas-failure-test` | ・`@resource.type:cloud_scheduler_job`: Scheduler のジョブの実行ログに絞る<br>・`@resource.labels.job_id:vas-web-*`: VM 起動・停止のジョブ（`vas-web-1-start` など 4 つ）に絞る。同じプロジェクトの他のジョブを拾わない<br>・`status:(error OR critical OR alert OR emergency)`: ログレベル ERROR 以上。失敗すると実行結果のログが ERROR になる（検証で確認: `PERMISSION_DENIED`、HTTP 403）。成功時・開始時のログは INFO なので一致しない<br>・`@protoPayload.status.code` を使わない理由: Scheduler の実行ログにはこの項目が無い（エラー内容は `jsonPayload.status` に入る）<br>・除外: 検証用に意図的に失敗させるジョブ。本番では作らない<br>・注意: 起動・停止の処理が受付後に失敗しても、ここでは成功に見える。M4 とセットで使う |
 | M4 | Compute Engine の監査ログ | `@resource.type:gce_instance @protoPayload.methodName:(*compute.instances.start OR *compute.instances.stop) @protoPayload.resourceName:*vas-web-* (status:(error OR critical OR alert OR emergency) OR @protoPayload.status.code:>0)` | `-@protoPayload.authenticationInfo.principalEmail:<運用者・CI のアカウント>` | ・`@resource.type:gce_instance`: VM に関するログに絞る<br>・`@protoPayload.methodName:(*compute.instances.start OR *compute.instances.stop)`: VM の起動・停止の操作に絞る。前に `*` を付けるのは、API のバージョンで接頭辞（`v1.`、`beta.`）が変わるため<br>・`@protoPayload.resourceName:*vas-web-*`: 対象の VM に絞る<br>・`status:(...) OR @protoPayload.status.code:>0`: Workflows の監視と同じ考え方。ログレベルが ERROR 以上、またはエラーコードが付いたものを拾う。成功時は NOTICE でエラーコードなし、権限不足では ERROR かつコード 7（検証で確認）<br>・受付後の処理の失敗（リソース不足など）も、処理完了のログが ERROR になるので拾える想定（未再現）<br>・除外: 運用者や CI による手動操作の失敗を通知しない場合だけ設定する |
 
@@ -65,11 +65,35 @@
 | 項目 | 設定値 |
 |---|---|
 | 監視対象メトリクス | `gcp.gce.instance.uptime` |
-| モニタークエリ | `avg(last_10m):avg:gcp.gce.instance.uptime{project_id:miumosh-sb-test01,instance_name:vas-web-*} by {instance_name} < 0` |
-| 閾値 | 値では発報しない（`< 0` は常に偽のダミー条件）。**No Data が 15 分続いたら危険** |
-| オプション | `notify_no_data: true`、`no_data_timeframe: 15`、`evaluation_delay: 300`（GCP 指標の取り込み遅延の吸収。要調整） |
+| 評価期間 | 直近 10 分の平均（`avg(last_10m)`） |
+| アラート判定条件 | 閾値以下になったら（メトリクス <= 閾値） |
+| 閾値（危険） | 0（直近 10 分間ずっと停止していた） |
+| 閾値（警告） | 30（直近 10 分のうち約半分以上停止していた） |
+| モニタークエリ | `avg(last_10m):default_zero(avg:gcp.gce.instance.uptime{project_id:miumosh-sb-test01,instance_name:vas-web-*} by {instance_name}) <= 0` |
+| オプション | `evaluation_delay: 300`（GCP 指標の取り込み遅延の吸収。要調整）、`require_full_window: false`、`notify_no_data: false` |
 
-- ログ監視ではないので、エラー判定文字列は無い。VM が停止すると指標が届かなくなることを検知する
+- ログ監視ではないので、エラー判定文字列は無い
+
+**閾値の計算式**
+
+10 分間の平均値 ＝（1 分ごとの値の合計）÷ 10
+＝（60 × 動いていた分数 ＋ 0 × 止まっていた分数）÷ 10
+
+| 直近 10 分の状態 | 計算 | 平均値 | 判定 |
+|---|---|---|---|
+| ずっと動いていた | （60 × 10 ＋ 0 × 0）÷ 10 | 60 | 正常 |
+| 1 分止まっていた（または 1 点取り込み漏れ） | （60 × 9 ＋ 0 × 1）÷ 10 | 54 | 正常 |
+| 3 分止まっていた | （60 × 7 ＋ 0 × 3）÷ 10 | 42 | 正常 |
+| **5 分止まっていた** | （60 × 5 ＋ 0 × 5）÷ 10 | **30** | **警告（≦ 30）** |
+| 8 分止まっていた | （60 × 2 ＋ 0 × 8）÷ 10 | 12 | 警告 |
+| **10 分ずっと止まっていた** | （60 × 0 ＋ 0 × 10）÷ 10 | **0** | **危険（≦ 0）** |
+
+- 60 は「1 分間ずっと動いていたときの値（60 秒）」、0 は「止まっていて値が届かない 1 分を `default_zero()` で 0 にしたもの」
+- 警告の閾値 30 ＝ 60 ×（10 分のうち動いていた割合 5/10）。「5 分以上止まったら警告」にしたいので 30 にしている
+- 一般式: 警告の閾値 ＝ 60 ×（10 − 警告にしたい停止分数）÷ 10。例: 3 分以上で警告にしたいなら 60 × 7 ÷ 10 ＝ 42
+- `default_zero()` が要る理由: VM が停止すると値が 0 になるのではなく、値が届かなくなる。そのままでは「閾値以下」で比較できないので、届かない時間を 0 として扱う
+- 平均を使う理由: 取り込みの揺らぎで 1 点欠けても平均は約 54 で、警告（30）に届かない。最小値（min）だと 1 点の欠けで誤検知する
+- 導入時に、Datadog 上で正常時の値が約 60 であることを確認する。違う場合（例: 5 分まとめて約 300）は、警告を正常値の半分にする
 
 ### 3.3 M3: Cloud Scheduler ジョブ失敗（ジョブの実行ログ）
 
@@ -140,19 +164,20 @@ resource "datadog_monitor" "m1_ilb_5xx" {
 resource "datadog_monitor" "m2_vm_uptime" {
   name    = "[M2][metric] VM停止（Uptime途絶）"
   type    = "query alert"
-  query   = "avg(last_10m):avg:gcp.gce.instance.uptime{project_id:${local.project_id},instance_name:vas-web-*} by {instance_name} < 0"
+  query   = "avg(last_10m):default_zero(avg:gcp.gce.instance.uptime{project_id:${local.project_id},instance_name:vas-web-*} by {instance_name}) <= 0"
   message = <<-EOT
-    {{#is_no_data}}[危険] VM {{instance_name.name}} の uptime 指標が 15 分間届いていません（VM 停止の可能性）。月次メンテナンス中でないか確認してください。{{/is_no_data}}
-    {{#is_no_data_recovery}}VM {{instance_name.name}} の uptime 指標が戻りました。{{/is_no_data_recovery}}
+    {{#is_alert}}[危険] VM {{instance_name.name}} が直近 10 分間停止しています。月次メンテナンス中でないか確認してください。{{/is_alert}}
+    {{#is_warning}}[警告] VM {{instance_name.name}} が停止しつつある可能性があります（直近 10 分の稼働率 {{value}}/60）。{{/is_warning}}
+    {{#is_recovery}}VM {{instance_name.name}} の稼働が戻りました。{{/is_recovery}}
     ${local.notify}
   EOT
 
   monitor_thresholds {
     critical = 0
+    warning  = 30
   }
 
-  notify_no_data      = true
-  no_data_timeframe   = 15
+  notify_no_data      = false
   evaluation_delay    = 300
   require_full_window = false
   renotify_interval   = 60
@@ -248,4 +273,4 @@ resource "datadog_downtime_schedule" "monthly_maintenance" {
 | 属性の書き方 | `@data.` 付き、`@data.severity:ERROR` | Workflows の監視と同じ書き方（`status:(...)`、`@protoPayload...`） |
 | M1 の閾値 | `> 0` のみ | 危険 ≧ 20、警告 ≧ 1 |
 | M4 の条件 | `severity` だけ | ログレベル OR `protoPayload.status.code:>0` |
-| 評価期間 | 10 分 | ログ監視は 5 分、Uptime は 10 分＋No Data 15 分 |
+| 評価期間 | 10 分 | ログ監視は 5 分、Uptime は 10 分の平均 |

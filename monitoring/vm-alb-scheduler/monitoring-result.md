@@ -25,7 +25,7 @@
 | Scheduler ジョブ | `vas-web-1-start`、`vas-web-1-stop`、`vas-web-2-start`、`vas-web-2-stop`（ロケーション `asia-northeast1`） |
 | Scheduler の実行 SA | `vas-scheduler@miumosh-sb-test01.iam.gserviceaccount.com` |
 | Datadog への取り込み | 指標: Datadog GCP インテグレーション（STS）／ログ: Log Router シンク → Pub/Sub → Dataflow（`Cloud_PubSub_to_Datadog`）→ Datadog Logs（[datadog/log_forwarding.tf](datadog/log_forwarding.tf)） |
-| Datadog のログ属性 | GCP の LogEntry は `@data.` の下に入る想定（例: `@data.resource.type`）。実際の取り込み後に Log Explorer で属性パスを確認し、必要ならファセットを作成する（`@data.httpRequest.status` はメジャーとして登録） |
+| Datadog のログ属性 | 既存の Workflows の監視と同じ書き方（ログレベルは `status:(error OR ...)`、GCP の項目は `@protoPayload...` など）にそろえる。詳細は [monitor-result-datadog.md](monitor-result-datadog.md) |
 
 ---
 
@@ -137,7 +137,7 @@ OR
 
 | 項目 | 内容 |
 |---|---|
-| Datadog 側の実装 | 今回の検証では Datadog への取り込み・モニターは動かしていない。属性パス（`@data.` の下の構造）、ファセットとメジャーの登録、取り込み遅延を、導入時に確認する |
+| Datadog 側の実装 | 今回の検証では Datadog への取り込み・モニターは動かしていない。属性名の書き方、取り込み遅延を導入時に確認する（[monitor-result-datadog.md](monitor-result-datadog.md) の 5 章） |
 | M2 の遅延 | GCP 側（A5）の実測は約 8.7 分。Datadog の GCP 指標の取り込み遅延と evaluation_delay の分だけ、さらに遅くなる |
 | M1 の危険の閾値 | 検証の 2 秒ごとのリクエストを前提にした値。本番のリクエスト量で見直す |
 | M4 の受付後の失敗 | `ZONE_RESOURCE_POOL_EXHAUSTED` などの非同期の失敗は再現できていない。完了ログ（`operation.last=true`）が ERROR になる想定 |

@@ -1,0 +1,12 @@
+# cp terraform.tfvars.example terraform.tfvars（Git 管理外）
+# Datadog の API/APP キーはここに書かず、環境変数 DD_API_KEY / DD_APP_KEY で渡す
+project_id   = "your-project-id"
+datadog_site = "ap1.datadoghq.com"
+notify       = "@you@example.com"
+
+# 親ディレクトリの `terraform output datadog_inputs` から転記
+# uptime_check_id      = "vas-ilb-http-private-xxxxxxxx"
+# forwarding_rule_name = "vas-fr-http"
+
+# enable_gcp_integration = true
+# enable_log_forwarding  = false

@@ -1,0 +1,15 @@
+# cp terraform.tfvars.example terraform.tfvars して値を設定（terraform.tfvars は Git 管理外）
+project_id         = "your-project-id"
+notification_email = "you@example.com"
+
+# nw_subnet_cidr             = "10.10.0.0/24"
+# ilb_vip_address            = "10.10.0.10"
+# proxy_only_subnet_cidr     = "10.10.64.0/23"
+# app_subnet_cidr            = "10.10.1.0/24"
+# enable_test_client         = true
+# scheduler_paused           = false
+# grant_scheduler_permission = true
+# enable_failure_test_job    = true
+# enable_uptime_check        = true
+# enable_gcp_alert_policies  = true
+# client_traffic_enabled     = true

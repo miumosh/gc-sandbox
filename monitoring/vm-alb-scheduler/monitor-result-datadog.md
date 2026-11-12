@@ -1,9 +1,10 @@
 # Datadog 監視設定
 
-[monitoring-result.md](monitoring-result.md) で決めた 4 つの監視（M1〜M4）を、Datadog のモニターとして実装するための設定値。
+[monitoring-result.md](monitoring-result.md) で決めた 5 つの監視（M1〜M5）を、Datadog のモニターとして実装するための設定値。
 
 - monitoring-result.md: 何を・どの条件で監視するか（GCP 側のログの条件は Cloud Logging の検索クエリで記載）
 - このドキュメント: その条件を Datadog の検索クエリとモニター設定に書き直したもの
+- [monitor-result-datadog-time.md](monitor-result-datadog-time.md): 各モニターの検知時間の比較（推定）
 
 > 注意: Datadog への取り込みとモニターは、今回の検証では動かしていない（未検証）。導入時は「5. 導入時の確認手順」で、検索クエリが想定どおりのログに一致するかを確認してから有効化する。
 
@@ -21,18 +22,22 @@
 | ワイルドカード | `*` | 例: `vas-web-*` |
 
 - 属性名の大文字・小文字（`@protoPayload` か `@protopayload` か）や、前に `data.` が付くかどうかは、Datadog への取り込み方で変わる。**既存の Workflows の監視で動いている書き方に合わせる**。以下は GCP のログの項目名どおり（`@protoPayload`）で書いている
-- **ファセット**: Datadog で、ログの項目を検索・集計に使えるよう登録したもの。Workflows の監視で `@protopayload.status.code:>0` が動いているなら、GCP の標準的な項目は既に使える状態になっている。今回新たに使う項目（`@resource.labels.job_id`、`@httpRequest.status` など）が検索に効かない場合だけ、Log Explorer でログを開き、その項目をクリックして「Create facet」を選ぶ（5 章）
+- **ファセット**: Datadog で、ログの項目を検索・集計に使えるよう登録したもの。Workflows の監視で `@protopayload.status.code:>0` が動いているなら、GCP の標準的な項目は既に使える状態になっている。今回新たに使う項目（`@resource.labels.job_id`、`@httpRequest.status`、`@jsonPayload.healthCheckProbeResult.healthState` など）が検索に効かない場合だけ、Log Explorer でログを開き、その項目をクリックして「Create facet」を選ぶ（5 章）
 
 ---
 
 ## 2. モニター一覧
 
-| ID | モニター名 | タイプ | 判定 | 危険 | 警告 | メンテナンス中 |
-|---|---|---|---|---|---|---|
-| M1 | `[M1][log] 内部ALB 5xx応答` | Log Monitor | 5 分間の 5xx ログ件数 | ≧ 20 | ≧ 1 | 2 台同時停止なら Downtime |
-| M2 | `[M2][metric] VM停止（Uptime途絶）` | Metric Monitor | VM 別の直近 10 分の平均（停止中は 0 扱い） | ≦ 0 | ≦ 30 | Downtime |
-| M3 | `[M3][log] Cloud Schedulerジョブ失敗` | Log Monitor | 5 分間のエラーログ件数 | ≧ 1 | – | 抑止しない |
-| M4 | `[M4][log] Compute起動停止の失敗（監査ログ）` | Log Monitor | 5 分間のエラーログ件数 | ≧ 1 | – | 抑止しない |
+| ID | 役割 | モニター名 | タイプ | 判定 | 危険 | 警告 | メンテナンス中 |
+|---|---|---|---|---|---|---|---|
+| M1 | 補助 | `[M1][log] 内部ALB 5xx応答` | Log Monitor | 5 分間の 5xx ログ件数（リクエストが無いと 0 件） | ≧ 20 | ≧ 1 | 2 台同時停止なら Downtime |
+| M2 | 土台 | `[M2][metric] VM停止（Uptime途絶）` | Metric Monitor | VM 別の直近 10 分の平均（停止中は 0 扱い） | ≦ 0 | ≦ 30 | Downtime |
+| M3 | 土台 | `[M3][log] Cloud Schedulerジョブ失敗` | Log Monitor | 5 分間のエラーログ件数 | ≧ 1 | – | 抑止しない |
+| M4 | 土台 | `[M4][log] Compute起動停止の失敗（監査ログ）` | Log Monitor | 5 分間のエラーログ件数 | ≧ 1 | – | 抑止しない |
+| M5 | 土台 | `[M5][log] 内部ALB ヘルスチェック UNHEALTHY` | Log Monitor | インスタンスグループ別の、5 分間の HEALTHY→UNHEALTHY 遷移ログ件数 | ≧ 1 | – | 抑止しない |
+
+- VM・アプリの死活は M2（VM の停止）と M5（アプリの停止・ハング）が担う。どちらもリクエストの有無に依らない
+- M1 は補助。ユーザーから見た異常（全台停止の早期検知、ヘルスチェックの URL 以外のエラー、ALB の異常）を見る。リクエストが無い時間帯は検知できない
 
 ### 2.1 エラー判定文字列と解説
 
@@ -42,6 +47,7 @@
 | M2 | Compute Engine の Uptime | –（メトリクス監視: `avg(last_10m):default_zero(avg:gcp.gce.instance.uptime{project_id:miumosh-sb-test01,instance_name:vas-web-*} by {instance_name}) <= 0`） | – | ・ログではなく指標で監視する。uptime は 1 分ごとの「その 1 分間に VM が動いていた秒数」で、動いていれば約 60。停止すると値が届かなくなるので、`default_zero()` で届かない時間を 0 として扱い、直近 10 分の平均が 30 以下で警告、0 以下で危険とする<br>・ALB のヘルスチェックログは VM 停止（TERMINATED）では出ないため、VM 停止の検知はこの監視が担う |
 | M3 | Cloud Scheduler のジョブの実行ログ | `@resource.type:cloud_scheduler_job @resource.labels.job_id:vas-web-* status:(error OR critical OR alert OR emergency)` | `-@resource.labels.job_id:vas-failure-test` | ・`@resource.type:cloud_scheduler_job`: Scheduler のジョブの実行ログに絞る<br>・`@resource.labels.job_id:vas-web-*`: VM 起動・停止のジョブ（`vas-web-1-start` など 4 つ）に絞る。同じプロジェクトの他のジョブを拾わない<br>・`status:(error OR critical OR alert OR emergency)`: ログレベル ERROR 以上。失敗すると実行結果のログが ERROR になる（検証で確認: `PERMISSION_DENIED`、HTTP 403）。成功時・開始時のログは INFO なので一致しない<br>・`@protoPayload.status.code` を使わない理由: Scheduler の実行ログにはこの項目が無い（エラー内容は `jsonPayload.status` に入る）<br>・除外: 検証用に意図的に失敗させるジョブ。本番では作らない<br>・注意: 起動・停止の処理が受付後に失敗しても、ここでは成功に見える。M4 とセットで使う |
 | M4 | Compute Engine の監査ログ | `@resource.type:gce_instance @protoPayload.methodName:(*compute.instances.start OR *compute.instances.stop) @protoPayload.resourceName:*vas-web-* (status:(error OR critical OR alert OR emergency) OR @protoPayload.status.code:>0)` | `-@protoPayload.authenticationInfo.principalEmail:<運用者・CI のアカウント>` | ・`@resource.type:gce_instance`: VM に関するログに絞る<br>・`@protoPayload.methodName:(*compute.instances.start OR *compute.instances.stop)`: VM の起動・停止の操作に絞る。前に `*` を付けるのは、API のバージョンで接頭辞（`v1.`、`beta.`）が変わるため<br>・`@protoPayload.resourceName:*vas-web-*`: 対象の VM に絞る<br>・`status:(...) OR @protoPayload.status.code:>0`: Workflows の監視と同じ考え方。ログレベルが ERROR 以上、またはエラーコードが付いたものを拾う。成功時は NOTICE でエラーコードなし、権限不足では ERROR かつコード 7（検証で確認）<br>・受付後の処理の失敗（リソース不足など）も、処理完了のログが ERROR になるので拾える想定（未再現）<br>・除外: 運用者や CI による手動操作の失敗を通知しない場合だけ設定する |
+| M5 | ALB のヘルスチェックログ | `@resource.type:gce_instance_group @resource.labels.instance_group_name:vas-ig-web-* @jsonPayload.healthCheckProbeResult.healthState:UNHEALTHY @jsonPayload.healthCheckProbeResult.previousHealthState:HEALTHY` | – | ・`@resource.type:gce_instance_group`: ヘルスチェックログに絞る（ヘルスチェックログのリソースはインスタンスグループ）<br>・`@resource.labels.instance_group_name:vas-ig-web-*`: 対象のインスタンスグループ（`vas-ig-web-1`、`vas-ig-web-2`。各 VM 1 台）に絞る<br>・`@jsonPayload.healthCheckProbeResult.healthState:UNHEALTHY`: 新しい状態が UNHEALTHY<br>・`@jsonPayload.healthCheckProbeResult.previousHealthState:HEALTHY`: 直前が HEALTHY。起動直後の `UNHEALTHY(UNKNOWN)→UNHEALTHY(TIMEOUT)` のような詳細状態だけの変化を除くため（入れないと起動のたびに誤検知する。検証で発生）<br>・`status:error` を使わない理由: UNHEALTHY への遷移でもログレベルが INFO になるため（保存したログの 17 件すべて INFO）<br>・VM の停止（TERMINATED）ではログが出ない。VM の停止は M2 が担う |
 
 ---
 
@@ -59,6 +65,7 @@
 - **`status:error` は使えない**。ALB のリクエストログは 5xx でも GCP の severity が WARNING（検証時の 5xx 174 件すべて）なので、Datadog の `status` も `warn` になる。HTTP ステータスコードで判定する
 - Datadog の GCP 用の処理で、`httpRequest.status` が標準の項目 `@http.status_code` に変換されている場合は、`@http.status_code:>=500` と書く（Log Explorer で確認）
 - 閾値の根拠（検証時の実測、2 秒ごとのリクエスト）: 全台停止は約 30 件／分、アプリ停止は 4 件、VM 1 台の停止は 1 件。危険の閾値は本番のリクエスト量で見直す
+- **リクエストが無いと発報しない**。5xx のログは、ALB が実際に返したレスポンスの記録なので、リクエストが来なければ全台停止でも 0 件のまま。死活の判断は M2・M5 に任せ、M1 はユーザーへの影響を見る補助として使う
 
 ### 3.2 M2: VM 停止（Compute Engine の Uptime）
 
@@ -121,6 +128,22 @@
 - `methodName` の前に `*` を付けているのは、API のバージョンで接頭辞が変わるため（`v1.compute.instances.start`、`beta.compute.instances.start`）
 - 受付後の処理の失敗（リソース不足など）は、処理完了のログが ERROR になる想定（未再現）
 
+### 3.5 M5: 内部 ALB ヘルスチェック UNHEALTHY（ヘルスチェックログ）
+
+| 項目 | 設定値 |
+|---|---|
+| エラー判定文字列 | `@resource.type:gce_instance_group @resource.labels.instance_group_name:vas-ig-web-* @jsonPayload.healthCheckProbeResult.healthState:UNHEALTHY @jsonPayload.healthCheckProbeResult.previousHealthState:HEALTHY` |
+| 除外文字列 | なし |
+| 閾値 | 危険: 5 分間に 1 件以上／警告: なし |
+| グループ化 | `@resource.labels.instance_group_name`（インスタンスグループ別。1 グループに VM 1 台なので VM 別と同じ） |
+| モニタークエリ | `logs("<エラー判定文字列>").index("*").rollup("count").by("@resource.labels.instance_group_name").last("5m") > 0` |
+
+- ヘルスチェックは 5 秒間隔で、2 回連続で失敗すると UNHEALTHY になり、そのときに遷移ログが 1 件出る。GCP 側（A1）の実測はアプリ停止から約 23 秒
+- ログには VM 名が無い。VM を特定するときは `@resource.labels.instance_group_name`（または `@jsonPayload.healthCheckProbeResult.ipAddress`）を見る
+- **通知上の「回復」は、実際の回復を意味しない**。ログは状態が変わったときに 1 件出るだけで、UNHEALTHY が続いても繰り返し出ない。そのため、遷移ログから 5 分たつと、異常が続いていてもモニターは「回復」になる。実際に回復したかは、Log Explorer で同じ VM の `UNHEALTHY→HEALTHY` のログ（`@jsonPayload.healthCheckProbeResult.healthState:HEALTHY`）を確認するか、`gcloud compute backend-services get-health vas-bes --region=asia-northeast1` で確認する
+- VM の停止（TERMINATED）では、ログが出ない（検証で確認）。停止した VM はヘルスチェックの対象から外れるため。VM の停止は M2 で拾う
+- 前提: ヘルスチェック `vas-hc` で、ログの出力（`log_config.enable = true`）が有効になっていること（`lb.tf` で設定済み）
+
 ---
 
 ## 4. Terraform（datadog provider）
@@ -136,6 +159,7 @@ locals {
   q_m1 = "@resource.type:internal_http_lb_rule @resource.labels.forwarding_rule_name:vas-fr-http @httpRequest.status:>=500 -@httpRequest.userAgent:GoogleStackdriverMonitoring*"
   q_m3 = "@resource.type:cloud_scheduler_job @resource.labels.job_id:vas-web-* ${local.error_lv} -@resource.labels.job_id:vas-failure-test"
   q_m4 = "@resource.type:gce_instance @protoPayload.methodName:(*compute.instances.start OR *compute.instances.stop) @protoPayload.resourceName:*vas-web-* (${local.error_lv} OR @protoPayload.status.code:>0)"
+  q_m5 = "@resource.type:gce_instance_group @resource.labels.instance_group_name:vas-ig-web-* @jsonPayload.healthCheckProbeResult.healthState:UNHEALTHY @jsonPayload.healthCheckProbeResult.previousHealthState:HEALTHY"
 
   tags = ["service:vm-alb-scheduler", "managed-by:terraform"]
 }
@@ -218,6 +242,25 @@ resource "datadog_monitor" "m4_compute_op_failed" {
   enable_logs_sample = true
   tags               = concat(local.tags, ["monitor:m4"])
 }
+
+resource "datadog_monitor" "m5_ilb_hc_unhealthy" {
+  name    = "[M5][log] 内部ALB ヘルスチェック UNHEALTHY"
+  type    = "log alert"
+  query   = "logs(\"${local.q_m5}\").index(\"*\").rollup(\"count\").by(\"@resource.labels.instance_group_name\").last(\"5m\") > 0"
+  message = <<-EOT
+    {{#is_alert}}[危険] {{[@resource.labels.instance_group_name].name}} の VM が ALB のヘルスチェックに応答しなくなりました（HEALTHY→UNHEALTHY）。VM は動いているがアプリが停止・ハングしている可能性があります。{{/is_alert}}
+    {{#is_recovery}}5 分間、新しい UNHEALTHY 遷移はありません。この通知は回復を意味しません。HEALTHY に戻ったかを get-health か HEALTHY 遷移のログで確認してください。
+    gcloud compute backend-services get-health vas-bes --region=asia-northeast1{{/is_recovery}}
+    ${local.notify}
+  EOT
+
+  monitor_thresholds {
+    critical = 0
+  }
+
+  enable_logs_sample = true
+  tags               = concat(local.tags, ["monitor:m5"])
+}
 ```
 
 - `enable_logs_sample = true` で、通知に一致したログのサンプルが添付される。ジョブ名や VM 名はそこで確認する（ジョブ別・VM 別に通知を分けたい場合は、クエリに `.by("@resource.labels.job_id")` などを追加する。その項目のファセット登録が必要）
@@ -247,6 +290,7 @@ resource "datadog_downtime_schedule" "monthly_maintenance" {
 ```
 
 - M3・M4 は Downtime の対象にしない（メンテナンスで一番検知したいのが起動・停止の失敗のため）
+- M5 も Downtime の対象にしない。VM の停止ではヘルスチェックログが出ず、起動時の詳細状態だけの変化は `previousHealthState` の条件で除外される（検証で確認）。本番の停止で発報した場合（アプリのシャットダウンが先に進み、VM が止まる前に UNHEALTHY になるなど）は、`monitor_tags` に `monitor:m5` を追加する
 
 ---
 
@@ -259,6 +303,8 @@ resource "datadog_downtime_schedule" "monthly_maintenance" {
 3. モニターを作成し、通知先をテスト用にした状態で、失敗を意図的に起こして発報を確認する
    - M3・M4: Scheduler の SA から VM の権限を外し、ジョブを手動実行する（`gcloud scheduler jobs run`。検証の T5 と同じ）
    - M1・M2: VM を 2 台とも停止する（検証の T2 と同じ）
+   - M5: VM は動かしたまま、1 台のアプリ（Web サーバー）を停止する（検証のアプリ停止と同じ）。その後アプリを起動し、HEALTHY 遷移のログが Datadog に届くことも確認する
+   - M5 の誤検知: VM を停止・起動して、M5 が発報しないことを確認する
 4. 通知先を本番用に切り替える
 
 ---
@@ -269,7 +315,7 @@ resource "datadog_downtime_schedule" "monthly_maintenance" {
 
 | 項目 | datadog/monitors.tf | このドキュメント |
 |---|---|---|
-| 対象の監視 | DD-A1〜A7、S1〜S3m（候補をすべて） | 採用した M1〜M4 だけ |
+| 対象の監視 | DD-A1〜A7、S1〜S3m（候補をすべて） | 採用した M1〜M5 だけ（M5 は DD-A1 に相当） |
 | 属性の書き方 | `@data.` 付き、`@data.severity:ERROR` | Workflows の監視と同じ書き方（`status:(...)`、`@protoPayload...`） |
 | M1 の閾値 | `> 0` のみ | 危険 ≧ 20、警告 ≧ 1 |
 | M4 の条件 | `severity` だけ | ログレベル OR `protoPayload.status.code:>0` |

@@ -1,16 +1,19 @@
 # 監視設計（Datadog 前提）
 
-検証（[RESULTS.md](RESULTS.md) / [test-history.md](test-history.md)）の結果をもとに、実装する監視を以下の 4 つに決めた。このドキュメントは、それを Datadog で実装するための設計情報をまとめたもの。
+検証（[RESULTS.md](RESULTS.md) / [test-history.md](test-history.md)）の結果をもとに、実装する監視を以下の 5 つに決めた。このドキュメントは、それを Datadog で実装するための設計情報をまとめたもの。
 
-| ID | 監視 | 検知したい事象 | Datadog のモニター種別 | 検証時の GCP 側の相当 |
-|---|---|---|---|---|
-| M1 | ALB のリクエストログ 5xx 系 | VM の停止・アプリの停止でユーザーにエラーが返った（全台停止を含む） | Log Monitor | A2 |
-| M2 | Compute Engine の Uptime | VM の停止（ALB の状態に依らない） | Metric Monitor | A5 |
-| M3 | Cloud Scheduler のジョブの実行ログ | Scheduler の起動・停止の失敗（権限不足、API の受付拒否など） | Log Monitor | S1 |
-| M4 | Compute Engine の監査ログ | 起動・停止の API 呼び出しの失敗、および受付後の処理の失敗 | Log Monitor | S3 |
+| ID | 監視 | 役割 | 検知したい事象 | Datadog のモニター種別 | 検証時の GCP 側の相当 |
+|---|---|---|---|---|---|
+| M1 | ALB のリクエストログ 5xx 系 | 補助 | ユーザーにエラーが返った（全台停止、業務 URL のエラー、ALB の異常）。**リクエストが無いと検知できない** | Log Monitor | A2 |
+| M2 | Compute Engine の Uptime | 土台 | VM の停止（ALB の状態やリクエストの有無に依らない） | Metric Monitor | A5 |
+| M3 | Cloud Scheduler のジョブの実行ログ | 土台 | Scheduler の起動・停止の失敗（権限不足、API の受付拒否など） | Log Monitor | S1 |
+| M4 | Compute Engine の監査ログ | 土台 | 起動・停止の API 呼び出しの失敗、および受付後の処理の失敗 | Log Monitor | S3 |
+| M5 | ALB のヘルスチェックログ（HEALTHY→UNHEALTHY 遷移） | 土台 | VM は動いているが、アプリが停止・ハングした（リクエストの有無に依らない） | Log Monitor | A1 |
 
+- VM・アプリの死活は **M2（VM の停止）＋ M5（アプリの停止）** を土台にする。どちらも ALB やシステム側が定期的に値・確認を出すので、利用者のリクエストが無い時間帯でも検知できる
+- M1 は補助。ユーザーから見た異常（全台停止の早期検知、ヘルスチェックの URL 以外のエラー、ALB 自体の異常）を見る。リクエストが無ければ 5xx も出ないので、M1 だけでは死活を判断できない
 - M3 と M4 は必ずセットで使う。Scheduler の実行ログに残るのは Compute API の受付結果（HTTP 応答）だけ。受付後に起動・停止の処理が失敗しても（例: `ZONE_RESOURCE_POOL_EXHAUSTED`）、Scheduler 上は 200 の成功として記録される。この失敗は M4 でしか拾えない
-- ヘルスチェックログは監視に使わない。VM の停止（TERMINATED）では 1 台でも 2 台でもログが出ないことを検証で確認した（[test-history.md](test-history.md)）
+- M5 は **VM の停止には使えない**。VM が停止（TERMINATED）すると、1 台でも 2 台でもヘルスチェックログが出ないことを検証で確認した（[test-history.md](test-history.md)）。VM の停止は M2 で拾う
 
 ---
 
@@ -31,7 +34,7 @@
 
 ## 2. 監視するメトリクスの詳細
 
-指標（メトリクス）で監視するのは M2 だけ。M1・M3・M4 はログ監視なので「3. ログ収集・ログ監視」に記載する。
+指標（メトリクス）で監視するのは M2 だけ。M1・M3・M4・M5 はログ監視なので「3. ログ収集・ログ監視」に記載する。
 
 | ID | 監視名 | 監視対象メトリクス | 評価期間 | アラート判定条件 | 閾値（危険） | 閾値（警告） |
 |---|---|---|---|---|---|---|
@@ -76,6 +79,7 @@
 | L1（M1） | 内部 ALB がクライアントに 5xx を返したことを検知する（VM・アプリの停止、全台停止） | Cloud Load Balancing（リージョン内部 Application Load Balancer） | 転送ルール `vas-fr-http`<br>（バックエンドサービス `vas-bes`、URL マップ `vas-urlmap`） | `miumosh-sb-test01` | ALB のリクエストログ<br>logName: `projects/miumosh-sb-test01/logs/loadbalancing.googleapis.com%2Frequests`<br>resource.type: `internal_http_lb_rule`<br>（バックエンドサービスの `log_config` でサンプリング率 1.0 を設定していることが前提） | GCP: `_Default` ログバケット（`projects/miumosh-sb-test01/locations/global/buckets/_Default`、保持 30 日）<br>Datadog: ログインデックス `main` | `logName="projects/miumosh-sb-test01/logs/loadbalancing.googleapis.com%2Frequests" resource.type="internal_http_lb_rule" resource.labels.forwarding_rule_name="vas-fr-http" httpRequest.status>=500 httpRequest.status<600` | `NOT httpRequest.userAgent=~"^GoogleStackdriverMonitoring-UptimeChecks"`（Uptime Check を併用する場合。全台停止時に重複して数えるため）<br>`NOT httpRequest.requestUrl=~"/healthz"`（アプリ独自の死活確認パスがあり、その 5xx を別監視する場合。パスは環境に合わせる） |
 | L2（M3） | Cloud Scheduler による VM の起動・停止ジョブの実行失敗を検知する（権限不足、API の受付拒否、Scheduler からの到達失敗） | Cloud Scheduler | ジョブ `vas-web-1-start`<br>`vas-web-1-stop`<br>`vas-web-2-start`<br>`vas-web-2-stop`<br>（ロケーション `asia-northeast1`） | `miumosh-sb-test01` | Cloud Scheduler の実行ログ<br>logName: `projects/miumosh-sb-test01/logs/cloudscheduler.googleapis.com%2Fexecutions`<br>resource.type: `cloud_scheduler_job`<br>`@type`: `type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished` | GCP: `_Default` ログバケット（`projects/miumosh-sb-test01/locations/global/buckets/_Default`、保持 30 日）<br>Datadog: ログインデックス `main` | `logName="projects/miumosh-sb-test01/logs/cloudscheduler.googleapis.com%2Fexecutions" resource.type="cloud_scheduler_job" resource.labels.job_id=~"^vas-web-.*-(start\|stop)$" jsonPayload."@type"="type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" severity>=ERROR` | `NOT resource.labels.job_id="vas-failure-test"`（検証用に意図的に失敗させるジョブ。`job_id` の正規表現で既に対象外だが、命名を変えたときの保険。本番では作らない） |
 | L3（M4） | Compute Engine の起動・停止の失敗を検知する（API 呼び出しの拒否と、受付後の処理の失敗の両方。L2 では受付後の失敗が「成功」に見えるため、その補完） | Compute Engine | インスタンス `vas-web-1`（asia-northeast1-a）<br>`vas-web-2`（asia-northeast1-b） | `miumosh-sb-test01` | 監査ログ（管理アクティビティ）<br>logName: `projects/miumosh-sb-test01/logs/cloudaudit.googleapis.com%2Factivity`<br>resource.type: `gce_instance`<br>methodName: `v1.compute.instances.start`／`v1.compute.instances.stop` | GCP: `_Required` ログバケット（`projects/miumosh-sb-test01/locations/global/buckets/_Required`、保持 400 日、変更不可）<br>Datadog: ログインデックス `main` | `logName="projects/miumosh-sb-test01/logs/cloudaudit.googleapis.com%2Factivity" resource.type="gce_instance" protoPayload.serviceName="compute.googleapis.com" protoPayload.methodName=~"compute\.instances\.(start\|stop)$" protoPayload.resourceName=~"/instances/vas-web-[0-9]+$" severity>=ERROR` | `NOT protoPayload.authenticationInfo.principalEmail="<運用者・CI のアカウント>"`（Scheduler 以外の手動操作の失敗を通知対象から外す場合。手動操作の失敗も拾いたいなら設定しない） |
+| L4（M5） | VM は動いているが、アプリが停止・ハングして ALB のヘルスチェックに応答しなくなったことを検知する（リクエストの有無に依らない） | Cloud Load Balancing（リージョン内部 Application Load Balancer） | インスタンスグループ `vas-ig-web-1`（asia-northeast1-a）<br>`vas-ig-web-2`（asia-northeast1-b）<br>（バックエンドサービス `vas-bes`。1 グループに VM 1 台） | `miumosh-sb-test01` | ヘルスチェックログ<br>logName: `projects/miumosh-sb-test01/logs/compute.googleapis.com%2Fhealthchecks`<br>resource.type: `gce_instance_group`<br>（ヘルスチェックの `log_config.enable = true` が前提。ログは状態が変わったときだけ出る） | GCP: `_Default` ログバケット（`projects/miumosh-sb-test01/locations/global/buckets/_Default`、保持 30 日）<br>Datadog: ログインデックス `main` | `logName="projects/miumosh-sb-test01/logs/compute.googleapis.com%2Fhealthchecks" resource.type="gce_instance_group" resource.labels.instance_group_name=~"^vas-ig-web-[0-9]+$" jsonPayload.healthCheckProbeResult.healthState="UNHEALTHY" jsonPayload.healthCheckProbeResult.previousHealthState="HEALTHY"` | なし |
 
 ### 3.1 判定条件を細かくしている理由
 
@@ -88,6 +92,9 @@
 | L2 | `job_id:vas-web-*` で絞る | 同じプロジェクトにある他の Scheduler ジョブの失敗を拾わないため |
 | L3 | `methodName` を `*compute.instances.start`／`*compute.instances.stop` の後方一致にする | API のバージョンで接頭辞が変わる（`v1.`、`beta.`）。後方一致にすると `instances.startWithEncryptionKey` などの別メソッドは拾わない |
 | L3 | `severity:ERROR` | 正常な起動・停止は、処理開始（`operation.first=true`）と完了（`operation.last=true`）の 2 件が NOTICE で出る。403 で拒否されると ERROR が 1 件出て、`protoPayload.status.code=7` が付く（検証で確認）。受付後の処理の失敗は、完了ログが ERROR になる想定（未再現） |
+| L4 | `healthState="UNHEALTHY"` かつ `previousHealthState="HEALTHY"` | 起動直後は `UNHEALTHY(UNKNOWN)→UNHEALTHY(TIMEOUT)` のように、詳細状態だけが変わってもログが出る。`previousHealthState` を条件に入れないと、起動のたびに誤検知する（検証で発生し、この条件で解消） |
+| L4 | `severity` は使わない | ヘルスチェックログは、UNHEALTHY への遷移でも `severity` が `INFO`（保存したログの 17 件すべて INFO）。`ERROR` で絞ると何も拾えない |
+| L4 | `instance_group_name` で絞り、グループ別に評価する | ログには VM 名が無い（`ipAddress` と、インスタンスグループの名前・ID が入る）。この構成は 1 グループに VM 1 台なので、グループ名がそのまま VM を表す |
 
 ### 3.2 ログ監視の通知条件（Datadog Log Monitor）
 
@@ -95,15 +102,18 @@
 
 | ID | 集計 | グループ化 | 閾値（危険） | 閾値（警告） | 補足 |
 |---|---|---|---|---|---|
-| L1（M1） | 直近 5 分の件数（`rollup("count").last("5m")`） | なし（全台停止では `backend_name` が空になるため） | ≧ 20 件／5 分（全台停止など、5xx が継続する状態） | ≧ 1 件／5 分（1 台停止の瞬間やアプリ停止の切り替わり） | 検証時の実測（2 秒ごとのリクエスト）: 全台停止は約 30 件／分、アプリ停止は 4 件、VM 1 台の停止は 1 件。危険の閾値は本番のリクエスト量で見直す。`renotify_interval = 60` |
+| L1（M1） | 直近 5 分の件数（`rollup("count").last("5m")`） | なし（全台停止では `backend_name` が空になるため） | ≧ 20 件／5 分（全台停止など、5xx が継続する状態） | ≧ 1 件／5 分（1 台停止の瞬間やアプリ停止の切り替わり） | 検証時の実測（2 秒ごとのリクエスト）: 全台停止は約 30 件／分、アプリ停止は 4 件、VM 1 台の停止は 1 件。危険の閾値は本番のリクエスト量で見直す。リクエストが無い時間帯は件数が 0 のままなので発報しない。`renotify_interval = 60` |
 | L2（M3） | 直近 5 分の件数 | `job_id` 別 | ≧ 1 件 | 設定しない（1 件の失敗がそのまま起動・停止の失敗を意味する） | `retry_count = 0` なので 1 回の失敗で確定。GCP 側（S1）の実測は失敗から約 35〜49 秒 |
 | L3（M4） | 直近 5 分の件数 | VM（`protoPayload.resourceName`）別 | ≧ 1 件 | 設定しない（同上） | GCP 側（S3）の実測は失敗から約 20〜49 秒（403 で確認） |
+| L4（M5） | 直近 5 分の件数 | インスタンスグループ（`resource.labels.instance_group_name`）別 | ≧ 1 件 | 設定しない（1 件の遷移ログがそのまま「その VM のアプリが応答しなくなった」ことを意味する） | GCP 側（A1）の実測はアプリ停止から約 23 秒。ヘルスチェックは 5 秒間隔で、2 回連続で失敗すると UNHEALTHY になる |
 
 共通: `enable_logs_sample = true`（通知に該当ログを添付）、`notify_no_data = false`。月次メンテナンス中の扱いは 5 章。
 
+**M5 の注意: 通知上の「回復」は、実際の回復を意味しない。** ヘルスチェックログは状態が変わったときに 1 件出るだけで、UNHEALTHY が続いても繰り返し出ない。そのため、遷移ログから 5 分たつと、Datadog のモニターは異常が続いていても「回復」になる。実際に回復したかは、`UNHEALTHY→HEALTHY` の遷移ログ（Datadog の Log Explorer）か `gcloud compute backend-services get-health vas-bes --region=asia-northeast1` で確認する。
+
 ### 3.3 GCP 側のログ転送（Log Router シンク）
 
-Datadog に送るログは、シンクのフィルタで 3 種類に絞る（Dataflow の処理量と Datadog の取り込み量を抑えるため）。[datadog/log_forwarding.tf](datadog/log_forwarding.tf) の `forward_filter` に相当する。
+Datadog に送るログは、シンクのフィルタで 4 種類に絞る（Dataflow の処理量と Datadog の取り込み量を抑えるため）。[datadog/log_forwarding.tf](datadog/log_forwarding.tf) の `forward_filter` に相当する（ヘルスチェックログは、既にこのファイルの転送対象に含まれている）。
 
 ```
 (logName="projects/miumosh-sb-test01/logs/loadbalancing.googleapis.com%2Frequests"
@@ -117,34 +127,42 @@ OR
 (logName="projects/miumosh-sb-test01/logs/cloudaudit.googleapis.com%2Factivity"
   AND resource.type="gce_instance"
   AND protoPayload.methodName=~"compute\.instances\.(start|stop)$")
+OR
+(logName="projects/miumosh-sb-test01/logs/compute.googleapis.com%2Fhealthchecks"
+  AND resource.type="gce_instance_group")
 ```
 
 - L1 は 5xx だけを送る。全リクエストを送ると、2 秒ごとのリクエストだけで約 1,300 件／時になる（検証時は 85 分で 2,580 件）
 - L2 は成功ログ（INFO）も送る。成功・失敗の履歴を Datadog 上で追えるようにするため（件数は 1 ジョブ 1 回あたり 2 件）
 - L3 も成功ログ（NOTICE）を送る。「誰が・いつ起動・停止したか」を Datadog 上で確認できるようにするため
+- L4 は UNHEALTHY への遷移だけでなく、すべての遷移ログ（`UNHEALTHY→HEALTHY` を含む）を送る。M5 の通知が「回復」になった後に、実際に HEALTHY に戻ったかを Datadog 上で確認するため。ログは状態が変わったときだけ出るので、件数は少ない（検証全体で保存したログで 17 件）
 - `_Required` バケットの監査ログもシンクで転送できる（シンクはバケットとは別に、ルーティング時点のログを対象にする）
 
 ---
 
-## 4. この 4 つの監視で検知できること・できないこと
+## 4. この 5 つの監視で検知できること・できないこと
 
-| 事象 | M1 5xx | M2 Uptime | M3 Scheduler | M4 監査 | 備考 |
-|---|---|---|---|---|---|
-| VM 1 台が停止（Scheduler による計画停止） | △ 警告（1 件程度） | ◯ | – | – | 計画停止なので Downtime で抑止 |
-| VM 1 台が予期せず停止（手動操作・障害） | △ 警告（1 件程度） | ◯ | – | – | ゲスト OS 内からの shutdown・ホストの障害は監査ログ（activity）に出ない。M2 で拾う |
-| VM 2 台とも停止 | ◯ 危険 | ◯ | – | – | 5xx が継続して出る |
-| VM は動いているがアプリが停止 | △ 警告（数件） | × | – | – | 1 台なら ALB が切り離すので 5xx は数件だけ。アプリの死活監視が必要なら別途検討（ヘルスチェックログ、Datadog Agent など） |
-| Scheduler の権限不足（403） | – | – | ◯ | ◯ | 検証で確認（T4、T5） |
-| API が受付時点で拒否（4xx） | – | – | ◯ | ◯ | 403 と同じ仕組み。未検証 |
-| 受付後に起動・停止の処理が失敗（リソース不足など） | – | 起動失敗なら × のまま（もともと停止中） | **×（200 の成功に見える）** | ◯（想定） | 未再現。保険としてメンテナンス後の確認手順で VM の状態を確認する |
-| Scheduler が Compute API に到達できない・タイムアウト | – | – | ◯ | × | 未検証 |
-| ジョブが実行されない（一時停止、削除、スケジュールの設定ミス） | – | – | × | × | ログ自体が出ない。メンテナンス当日に実行履歴を確認する |
+| 事象 | M1 5xx | M2 Uptime | M3 Scheduler | M4 監査 | M5 ヘルスチェック | 備考 |
+|---|---|---|---|---|---|---|
+| VM 1 台が停止（Scheduler による計画停止） | △ 警告（1 件程度） | ◯ | – | – | × | 計画停止なので M2 は Downtime で抑止。M5 は VM 停止ではログが出ない（検証で確認） |
+| VM 1 台が予期せず停止（手動操作・障害） | △ 警告（1 件程度） | ◯ | – | – | × | ゲスト OS 内からの shutdown・ホストの障害は監査ログ（activity）に出ない。M2 で拾う |
+| VM 2 台とも停止（リクエストあり） | ◯ 危険 | ◯ | – | – | × | 5xx が継続して出る。最初に気づけるのは M1 |
+| VM 2 台とも停止（**リクエストなし**。夜間など） | × | ◯ | – | – | × | 5xx はリクエストが来ないと出ない。M2 だけが拾う |
+| VM は動いているがアプリが停止・ハング（1 台） | △ 警告（数件。リクエストが無ければ 0 件） | × | – | – | **◯** | ALB が切り離すので 5xx は数件だけ。M5 はリクエストが無くても拾う |
+| VM は動いているがアプリが停止・ハング（2 台とも） | ◯ 危険（リクエストがあれば） | × | – | – | **◯（VM ごとに発報）** | リクエストが無い時間帯は M5 だけが拾う |
+| ヘルスチェックの URL は正常だが、業務の URL で 5xx を返す | ◯（リクエストがあれば） | × | – | – | × | この構成のヘルスチェックは `/` を確認している。ヘルスチェック専用の URL に変えた場合に起こりうる |
+| ALB 自体の設定ミス・障害 | ◯（リクエストがあれば） | × | – | – | × | ユーザーから見た異常は M1 でしか分からない |
+| Scheduler の権限不足（403） | – | – | ◯ | ◯ | – | 検証で確認（T4、T5） |
+| API が受付時点で拒否（4xx） | – | – | ◯ | ◯ | – | 403 と同じ仕組み。未検証 |
+| 受付後に起動・停止の処理が失敗（リソース不足など） | – | 起動失敗なら × のまま（もともと停止中） | **×（200 の成功に見える）** | ◯（想定） | – | 未再現。保険としてメンテナンス後の確認手順で VM の状態を確認する |
+| Scheduler が Compute API に到達できない・タイムアウト | – | – | ◯ | × | – | 未検証 |
+| ジョブが実行されない（一時停止、削除、スケジュールの設定ミス） | – | – | × | × | – | ログ自体が出ない。メンテナンス当日に実行履歴を確認する |
 
 ---
 
 ## 5. 月次メンテナンス時の扱い
 
-詳細は [monitoring-and-maintenance.md](monitoring-and-maintenance.md) の 2 章。この 4 つの監視に当てはめると次のとおり。
+詳細は [monitoring-and-maintenance.md](monitoring-and-maintenance.md) の 2 章。この 5 つの監視に当てはめると次のとおり。
 
 | ID | メンテナンス中 | 理由 |
 |---|---|---|
@@ -152,6 +170,7 @@ OR
 | M2 | Downtime（対象: `instance_name:vas-web-*`、停止ジョブの時刻から起動ジョブの時刻＋20 分まで） | 計画停止そのものを検知してしまう。Downtime の終了後も No Data が続けば、起動の失敗に気づける |
 | M3 | 抑止しない | メンテナンスで一番検知したい事象（起動・停止の失敗） |
 | M4 | 抑止しない | 同上。M3 では見えない受付後の失敗を拾う |
+| M5 | 抑止しない | VM の停止ではログが出ず、起動時の `UNHEALTHY(UNKNOWN)→UNHEALTHY(TIMEOUT)` は `previousHealthState` の条件で除外される（検証で確認）。起動後にアプリが立ち上がらない場合は、HEALTHY にならないので遷移ログも出ない。起動後の確認手順で `get-health` を見る |
 
 ---
 
@@ -163,4 +182,6 @@ OR
 | M2 の遅延 | GCP 側（A5）の実測は約 8.7 分。Datadog の GCP 指標の取り込み遅延と evaluation_delay の分だけ、さらに遅くなる |
 | M1 の危険の閾値 | 検証の 2 秒ごとのリクエストを前提にした値。本番のリクエスト量で見直す |
 | M4 の受付後の失敗 | `ZONE_RESOURCE_POOL_EXHAUSTED` などの非同期の失敗は再現できていない。完了ログ（`operation.last=true`）が ERROR になる想定 |
+| M5 の停止時の挙動 | 検証では、Scheduler による停止で HEALTHY→UNHEALTHY のログは出なかった。本番のアプリはシャットダウンに時間がかかり、VM が止まる前にアプリが応答しなくなる場合、ログが出る可能性がある。月次メンテナンスで発報した場合は、M5 も Downtime の対象にする |
+| M5 の回復の確認 | 通知上の「回復」は、遷移ログから 5 分たっただけ。実際の回復は `UNHEALTHY→HEALTHY` のログか `get-health` で確認する運用にする |
 | 既存サンプルとの差分 | [datadog/monitors.tf](datadog/monitors.tf) の DD-S1 は `resource.type` と `severity` だけで判定しており、このドキュメントの L2 より条件が粗い。このドキュメントに合わせて更新する場合は別途対応する |

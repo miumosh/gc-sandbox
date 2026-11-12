@@ -7,6 +7,7 @@
 > - 採用した監視 5 つの Datadog 設計（メトリクス詳細・ログ監視条件）: [`monitoring-result.md`](monitoring-result.md)
 > - 上記の Datadog モニター設定（検索クエリ・閾値・通知・Terraform）: [`monitor-result-datadog.md`](monitor-result-datadog.md)
 > - 各モニターの検知時間の比較（推定）: [`monitor-result-datadog-time.md`](monitor-result-datadog-time.md)
+> - 追加の監視（Certificate Manager／Backup and DR／Oracle Autonomous AI Database／Compute Engine のイベント。未検証）: [`monitor-additional.md`](monitor-additional.md)
 > - Datadog のサンプル（未適用）: [`datadog/README.md`](datadog/README.md)
 > - 取得したログ（実体は Git 管理外）と取得スクリプト: [`logs/README.md`](logs/README.md)
 > - 作業と監視結果の時系列表: [`test-history.md`](test-history.md)

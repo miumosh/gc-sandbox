@@ -4,6 +4,7 @@
 > - 検証結果（時系列・遅延の実測値）: [`RESULTS.md`](RESULTS.md)
 > - 知見（ログの形式・挙動・注意点）: [`KNOWLEDGE.md`](KNOWLEDGE.md)
 > - 監視設計の推奨・月次メンテナンス時の静観/注視: [`monitoring-and-maintenance.md`](monitoring-and-maintenance.md)
+> - 必須の監視 M1〜M5 のまとめ（GCP と Datadog の条件を 1 つの表で整理）: [`monitor-required.md`](monitor-required.md)
 > - 採用した監視 5 つの Datadog 設計（メトリクス詳細・ログ監視条件）: [`monitoring-result.md`](monitoring-result.md)
 > - 上記の Datadog モニター設定（検索クエリ・閾値・通知・Terraform）: [`monitor-result-datadog.md`](monitor-result-datadog.md)
 > - 各モニターの検知時間の比較（推定）: [`monitor-result-datadog-time.md`](monitor-result-datadog-time.md)

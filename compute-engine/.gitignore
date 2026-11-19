@@ -1,0 +1,40 @@
+# ==== Secrets / credentials (全体共通) ====
+*.pem
+*.key
+*.p12
+*.pfx
+*-key.json
+*_key.json
+credentials*.json
+service-account*.json
+sa-*.json
+application_default_credentials.json
+.env
+.env.*
+!.env.example
+
+# ==== Terraform ====
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# ==== OS / Editor ====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~

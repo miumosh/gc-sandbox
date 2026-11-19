@@ -1,0 +1,4 @@
+# 検証ログ（外部 IP / ホスト名 / auid 等を含むため Git 管理外）
+*
+!.gitignore
+!README.md

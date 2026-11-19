@@ -1,0 +1,9 @@
+# cp terraform.tfvars.example terraform.tfvars して値を設定（terraform.tfvars は Git 管理外）
+project_id       = "your-project-id"
+allowed_ssh_cidr = "203.0.113.10/32" # curl -s -4 https://checkip.amazonaws.com の結果 + /32
+
+# image               = "rhel-cloud/rhel-9"
+# machine_type        = "e2-medium"
+# zone                = "asia-northeast1-a"
+# ssh_user            = "rheladmin"
+# ssh_public_key_path = "~/.ssh/gc-rhel-audit.pub"

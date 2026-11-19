@@ -1,0 +1,10 @@
+## Customer environment reproduction (verification sample)
+## Place as /etc/audit/rules.d/50-identity.rules
+## Target of change: only the /etc/passwd and /etc/group lines (remove "r")
+-w /etc/passwd -p rwa -k identity
+-w /etc/group -p rwa -k identity
+-w /etc/shadow -p rwa -k identity
+-w /etc/gshadow -p rwa -k identity
+-w /etc/security/opasswd -p wa -k identity
+-w /etc/sudoers -p rwa -k scope
+-w /etc/sudoers.d/ -p rwa -k scope

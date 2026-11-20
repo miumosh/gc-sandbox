@@ -1,0 +1,230 @@
+[rheladmin@rha-vm ~]$ sudo -i
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# export LC_ALL=C # date +%x / ausearch -ts の日付書式を揃える
+[root@rha-vm ~]# export BK=/tmp/audit-backup-$(date +%Y%m%d%H%M%S)
+[root@rha-vm ~]# mkdir -p $BK; echo $BK
+/tmp/audit-backup-20261120025905
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm# テスト設定 設定
+[root@rha-vm ~]# cat > /etc/audit/rules.d/50-identity.rules <<'EOF'
+-w /etc/passwd -p rwa -k identity
+-w /etc/group -p rwa -k identity
+-w /etc/shadow -p rwa -k identity
+-w /etc/gshadow -p rwa -k identity
+-w /etc/security/opasswd -p wa -k identity
+-w /etc/sudoers -p rwa -k scope
+-w /etc/sudoers.d/ -p rwa -k scope
+EOF
+[root@rha-vm ~]# chmod 0600 /etc/audit/rules.d/50-identity.rules
+[root@rha-vm ~]# restorecon -v /etc/audit/rules.d/50-identity.rules
+[root@rha-vm ~]# augenrules --load; echo $?     # 0（"Old style watch rules are slower" は警告なので問題なし）
+No rules
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 2
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 6
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 0
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+0
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# auditctl -l
+-w /etc/passwd -p rwa -k identity
+-w /etc/group -p rwa -k identity
+-w /etc/shadow -p rwa -k identity
+-w /etc/gshadow -p rwa -k identity
+-w /etc/security/opasswd -p wa -k identity
+-w /etc/sudoers -p rwa -k scope
+-w /etc/sudoers.d -p rwa -k scope
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# S_D=$(date +%x); S_T=$(date +%T); sleep 1
+cat /etc/passwd > /dev/null
+cat /etc/group > /dev/null
+sleep 2
+ausearch --input-logs -i -f /etc/passwd -c cat -ts $S_D $S_T   # comm=cat ... が出る
+ausearch --input-logs -i -f /etc/group  -c cat -ts $S_D $S_T   # 同上
+----
+type=PROCTITLE msg=audit(11/20/26 03:00:50.579:201) : proctitle=cat /etc/passwd
+type=PATH msg=audit(11/20/26 03:00:50.579:201) : item=0 name=/etc/passwd inode=50332610 dev=08:02 mode=file,644 ouid=root ogid=root rdev=00:00 obj=system_u:object_r:passwd_file_t:s0 nametype=NORMAL cap_fp=none cap_fi=none cap_fe=0 cap_fver=0 cap_frootid=0
+type=CWD msg=audit(11/20/26 03:00:50.579:201) : cwd=/root
+type=SYSCALL msg=audit(11/20/26 03:00:50.579:201) : arch=x86_64 syscall=openat success=yes exit=3 a0=AT_FDCWD a1=0x7fff3717d746 a2=O_RDONLY a3=0x0 items=1 ppid=5862 pid=5974 auid=rheladmin uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts1 ses=3 comm=cat exe=/usr/bin/cat subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 key=identity
+----
+type=PROCTITLE msg=audit(11/20/26 03:00:50.581:202) : proctitle=cat /etc/group
+type=PATH msg=audit(11/20/26 03:00:50.581:202) : item=0 name=/etc/group inode=50332593 dev=08:02 mode=file,644 ouid=root ogid=root rdev=00:00 obj=system_u:object_r:passwd_file_t:s0 nametype=NORMAL cap_fp=none cap_fi=none cap_fe=0 cap_fver=0 cap_frootid=0
+type=CWD msg=audit(11/20/26 03:00:50.581:202) : cwd=/root
+type=SYSCALL msg=audit(11/20/26 03:00:50.581:202) : arch=x86_64 syscall=openat success=yes exit=3 a0=AT_FDCWD a1=0x7fffc1114747 a2=O_RDONLY a3=0x0 items=1 ppid=5862 pid=5975 auid=rheladmin uid=root gid=root euid=root suid=root fsuid=root egid=root sgid=root fsgid=root tty=pts1 ses=3 comm=cat exe=/usr/bin/cat subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 key=identity
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# # 設定箇所の確認
+[root@rha-vm ~]# auditctl -l | egrep -i "passwd|group"
+-w /etc/passwd -p rwa -k identity
+-w /etc/group -p rwa -k identity
+-w /etc/security/opasswd -p wa -k identity
+[root@rha-vm ~]#
+[root@rha-vm ~]# grep -Hni -E "passwd|group" /etc/audit/rules.d/*.rules # ★★★
+/etc/audit/rules.d/50-identity.rules:1:-w /etc/passwd -p rwa -k identity
+/etc/audit/rules.d/50-identity.rules:2:-w /etc/group -p rwa -k identity
+/etc/audit/rules.d/50-identity.rules:5:-w /etc/security/opasswd -p wa -k identity
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# auditctl -s
+enabled 1
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# augenrules --check
+/sbin/augenrules: No change
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# cp -a /etc/audit/rules.d $BK/
+[root@rha-vm ~]# cp -a /etc/audit/audit.rules $BK/
+[root@rha-vm ~]# auditctl -l > $BK/auditctl-l.before
+[root@rha-vm ~]# ls -lZ $BK $BK/rules.d
+/tmp/audit-backup-20261120025905:
+total 8
+-rw-r-----. 1 root root system_u:object_r:auditd_etc_t:s0   353 Nov 20 02:59 audit.rules
+-rw-r--r--. 1 root root unconfined_u:object_r:user_tmp_t:s0 245 Nov 20 03:03 auditctl-l.before
+drwxr-x---. 2 root root system_u:object_r:auditd_etc_t:s0    50 Nov 20 02:59 rules.d
+
+/tmp/audit-backup-20261120025905/rules.d:
+total 8
+-rw-------. 1 root root unconfined_u:object_r:auditd_etc_t:s0 246 Nov 20 02:59 50-identity.rules
+-rw-------. 1 root root system_u:object_r:auditd_etc_t:s0     244 Nov 13 15:20 audit.rules
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# vi /etc/audit/rules.d/50-identity.rules
+[root@rha-vm ~]# diff -r $BK/rules.d /etc/audit/rules.d
+diff -r /tmp/audit-backup-20261120025905/rules.d/50-identity.rules /etc/audit/rules.d/50-identity.rules
+1,2c1,2
+< -w /etc/passwd -p rwa -k identity
+< -w /etc/group -p rwa -k identity
+---
+> -w /etc/passwd -p wa -k identity
+> -w /etc/group -p wa -k identity
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# augenrules --check
+/sbin/augenrules: Rules have changed and should be updated
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# augenrules --load; echo $?
+No rules
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 36
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 4
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+Old style watch rules are slower
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 12
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+0
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# systemctl is-active auditd
+active
+[root@rha-vm ~]# auditctl -s
+enabled 1
+failure 1
+pid 615
+rate_limit 0
+backlog_limit 8192
+lost 0
+backlog 0
+backlog_wait_time 60000
+backlog_wait_time_actual 0
+loginuid_immutable 0 unlocked
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# auditctl -l > $BK/auditctl-l.after
+[root@rha-vm ~]# diff $BK/auditctl-l.before $BK/auditctl-l.after
+1,2c1,2
+< -w /etc/passwd -p rwa -k identity
+< -w /etc/group -p rwa -k identity
+---
+> -w /etc/passwd -p wa -k identity
+> -w /etc/group -p wa -k identity
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# S_D=$(date +%x); S_T=$(date +%T); sleep 1
+cat /etc/passwd > /dev/null
+cat /etc/group > /dev/null
+sleep 2
+ausearch --input-logs -i -f /etc/passwd -c cat -ts $S_D $S_T   # <no matches>
+ausearch --input-logs -i -f /etc/group  -c cat -ts $S_D $S_T   # <no matches>
+<no matches>
+<no matches>
+[root@rha-vm ~]#
+[root@rha-vm ~]#
+[root@rha-vm ~]# history | grep -E 'auditctl -s'
+   19  auditctl -s | grep enabled  #
+   30  auditctl -s
+   39  history | grep -E 'auditctl -s'
+[root@rha-vm ~]#

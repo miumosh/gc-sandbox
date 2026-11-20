@@ -53,8 +53,8 @@ grep -Hni -E "passwd|group" /etc/audit/rules.d/*.rules # ★★★
 # -w /etc/passwd -k identity                      -> -p なし（= rwxa）-> 対応必要
 # -a always,exit -F path=/etc/group -F perm=r ... -> r あり -> 対応必要
 
-auditctl -s | grep enabled  # enabled 1 なら続行（0: 無効、2: 不変モード → 中止）
-augenrules --check          # No change なら rules.d と audit.rules が一致（それ以外なら中止）
+auditctl -s         # enabled 1 なら続行（0: 無効、2: 不変モード → 中止）
+augenrules --check  # No change なら rules.d と audit.rules が一致（それ以外なら中止）
 
 # ------------------------------------------------------------------------------
 # バックアップ
@@ -77,7 +77,7 @@ diff -r $BK/rules.d /etc/audit/rules.d
 augenrules --check         # Rules have changed and should be updated
 augenrules --load; echo $? # 0
 systemctl is-active auditd # active
-auditctl -s | grep enabled # enabled 1
+auditctl -s                # enabled 1
 
 # 反映後のルール確認
 auditctl -l > $BK/auditctl-l.after

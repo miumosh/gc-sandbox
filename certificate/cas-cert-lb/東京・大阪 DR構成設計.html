@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>東京・大阪 DR構成設計</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;600&family=Noto+Sans+JP:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 設計書。落ち着いた技術資料、結論が先。
+   IDEA: 運用者が壁に貼る「切替ボード」— 通常/災対を一枚の図で切り替えて見せる。
+   PICTURE: 東京・大阪の2リージョン構成図。スイッチで経路・DNS応答が変わる。
+   COLOUR and TYPE: deep sea地に sky(東京/通常) と signal pink(大阪/災対)。Hanken Grotesk + Noto Sans JP。
+   LAYOUT: 結論帯 → 切替図 → 比較表 → DNS → 手順 → 構築 → 注意。 */
+:root{color-scheme:dark;--bg:#0a2540;--bg2:#0f2e4f;--line:#2a4a6e;--ink:#ffffff;--mut:#a9c1d9;--sky:#8fd3ff;--pink:#ff5c8a;--ok:#7be3b0}
+:root[data-theme=light]{color-scheme:dark}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 "Hanken Grotesk","Noto Sans JP",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(28px,4vw,56px) max(5vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-weight:300;font-size:clamp(30px,4.6vw,50px);line-height:1.12;margin:0 0 14px;text-wrap:balance}
+h2{font-weight:600;font-size:clamp(22px,2.6vw,30px);line-height:1.25;margin:0 0 6px;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+.lead{color:var(--mut);max-width:70ch;margin:0}
+.sub{color:var(--mut);margin:0 0 20px;max-width:70ch}
+.nav{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;padding:10px max(5vw,16px);border-block:1px solid var(--line);background:var(--bg)}
+.nav a{flex:none;color:var(--sky);text-decoration:none;font-size:14px;padding:6px 10px;border-radius:6px}
+.nav a:hover,.nav a:focus-visible{background:var(--bg2);outline:none}
+@media(min-width:900px){.nav{position:sticky;top:0;z-index:5}}
+html{scroll-padding-top:72px}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:14px;margin-top:26px}
+.key{border-top:2px solid var(--sky);padding-top:10px}
+.key b{display:block;font-size:17px}.key span{color:var(--mut);font-size:15px}
+.switch{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:4px 0 16px}
+.switch button{font:inherit;font-size:16px;min-height:44px;padding:0 18px;background:transparent;color:var(--mut);border:0;cursor:pointer}
+.switch button[aria-pressed=true]{background:var(--sky);color:#0a2540;font-weight:600}
+.switch button.dr[aria-pressed=true]{background:var(--pink);color:#fff}
+.switch button:focus-visible{outline:2px solid #fff;outline-offset:-4px}
+.board{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);gap:24px;align-items:start}
+@media(max-width:900px){.board{grid-template-columns:minmax(0,1fr)}}
+figure{margin:0}
+.dg{width:100%;height:auto;display:block;color:var(--ink);font-family:"Hanken Grotesk","Noto Sans JP",sans-serif}
+.dg .bx{fill:rgba(255,255,255,.045);stroke:var(--line);stroke-width:1.2}
+.dg .rg{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:6 5}
+.dg .t{fill:currentColor;font-size:14px;font-weight:600}
+.dg .s{fill:var(--mut);font-size:11.5px}
+.dg .rl{font-size:15px;font-weight:700}
+.dg .ln{stroke:var(--mut);stroke-width:1.4;fill:none}
+.dg .lnd{stroke:var(--mut);stroke-width:1.2;fill:none;stroke-dasharray:4 4}
+.dg .lab{fill:var(--mut);font-size:11px}
+.dg .tr{stroke-width:3.5;fill:none;transition:opacity .4s}
+.dg .tr-tk{stroke:var(--sky)}.dg .tr-os{stroke:var(--pink)}
+.dg .rtk,.dg .ros{transition:opacity .4s}
+.dg #down{opacity:0;transition:opacity .4s}
+figcaption{color:var(--mut);font-size:14px;margin-top:8px}
+[data-mode=normal] .tr-os{opacity:.12}
+[data-mode=dr] .tr-tk{opacity:.12}
+[data-mode=dr] .rtk{opacity:.32}
+[data-mode=dr] #down{opacity:1}
+@media(prefers-reduced-motion:reduce){.dg *{transition:none!important}}
+.steps{border-left:3px solid var(--sky);padding-left:16px}
+[data-mode=dr] .steps{border-color:var(--pink)}
+.steps h3{margin-top:0}
+.steps ol{padding-left:1.3em;margin:0}.steps li{margin-bottom:8px}
+.only-dr{display:none}[data-mode=dr] .only-dr{display:block}[data-mode=dr] .only-n{display:none}
+.chg{display:inline-block;font-size:12px;font-weight:700;padding:1px 8px;border-radius:99px;background:var(--pink);color:#fff;white-space:nowrap}
+.nochg{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:13.5px}
+td.tk{color:var(--sky)}td.os{color:#ffb3c8}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;overflow-wrap:anywhere}
+.cb{position:relative;margin:10px 0 18px}
+pre{background:#061a2e;border:1px solid var(--line);border-radius:8px;padding:14px 16px;font-size:13.5px;line-height:1.55;overflow-x:auto;margin:0}
+.cp{position:absolute;top:6px;right:6px;font:inherit;font-size:13px;min-height:32px;padding:0 10px;border-radius:6px;border:1px solid var(--line);background:var(--bg2);color:var(--ink);cursor:pointer}
+.cp:focus-visible{outline:2px solid var(--sky)}
+.note{border:1px solid var(--line);border-left:4px solid var(--pink);border-radius:6px;padding:12px 16px;margin:14px 0;background:rgba(255,92,138,.06)}
+.note.i{border-left-color:var(--sky);background:rgba(143,211,255,.06)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:24px}
+.alt{background:var(--bg2)}
+ul.tight li,ol.tight li{margin-bottom:6px}
+.small{font-size:13.5px;color:var(--mut)}
+.star{min-width:860px}
+.star td{text-align:center;vertical-align:middle}.star td:first-child,.star td:last-child{text-align:left}
+.star th{text-align:center}.star th:first-child,.star th:last-child{text-align:left}
+.star .o{color:var(--ok);font-size:20px}.star .x{color:var(--pink);font-size:20px;font-weight:700}.star .t{color:#ffd27a;font-size:20px}.star .na{color:var(--line)}
+.star tr.best td{background:rgba(143,211,255,.12)}.star tr.best td:first-child{border-left:4px solid var(--sky)}
+.adopt{display:inline-block;background:var(--sky);color:#0a2540;font-weight:700;font-size:13px;padding:2px 12px;border-radius:99px;white-space:nowrap}
+.chain{margin:6px 0 16px}
+.cr{border:1.5px solid #fff;border-radius:8px;padding:12px 16px;font-weight:600;text-align:center}
+.cr span,.cs span{display:block;font-weight:400;font-size:13.5px;color:var(--mut)}
+.cbr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:22px;position:relative}
+.cbr::before{content:"";position:absolute;top:-22px;left:25%;right:25%;height:12px;border:1.5px solid var(--mut);border-bottom:0;border-radius:6px 6px 0 0}
+.cs{border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;font-weight:600;text-align:center}
+.tkb{border-color:var(--sky)}.osb{border-color:var(--pink)}
+pre,.scroll{overflow-x:auto}.scroll a{flex:none}
+@media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--line)}.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:8em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;white-space:normal;color:var(--mut)}.stack td:empty{display:none}}
+</style><script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script></head>
+<body>
+
+<header class="band"><div class="wrap">
+<h1>東京・大阪の冗長構成：<br>リージョン別の証明書と、DNSによる切替</h1>
+<p class="lead">社内のプライベート通信だけで使う業務システムの設計です。CAS、Certificate Manager、内部ALBを東京と大阪にそれぞれ置き、同じFQDNをCloud DNSで切り替えます。証明書は両方のリージョンで常に有効で、自動更新されます。<strong>切替で変わるのはDNSの応答だけ</strong>です。</p>
+<div class="keys">
+<div class="key"><b>CASもCertificate Managerも両リージョンに作る</b><span>CAプール、発行構成、証明書は同じリージョンでないと組み合わせられないため。</span></div>
+<div class="key"><b>ルートCAは1つ、下位CAをリージョンごとに置く</b><span>端末に配るルート証明書は1つだけ。東京が落ちても大阪の下位CAが自動更新を続ける。</span></div>
+<div class="key"><b>グローバルにはできない</b><span>CASにはグローバルがなく、リージョナルALBにはリージョナル証明書しか設定できない。LBを分ける要件がある以上、全リージョナルしか選べない。</span></div>
+<div class="key"><b>DNS認証は使わない</b><span>DNS認証は一般公開の証明書を使うときだけ必要。今回はプライベートCA（CAS）＋発行構成を使う。</span></div>
+<div class="key"><b>切替はCloud DNSのフェイルオーバーポリシーで行う</b><span>限定公開ゾーンで普段は東京を返す。東京の異常を検知したら大阪を返す。検知できない障害には手動で切り替える。</span></div>
+</div>
+</div></header>
+
+<nav class="nav" aria-label="目次"><a href="#why">構成案の比較</a><a href="#board">構成図と切替</a><a href="#diff">変更箇所</a><a href="#ca">ルートCAの仕組み</a><a href="#ip">LBのIP</a><a href="#dns">DNS設計</a><a href="#runbook">切替・切戻し手順</a><a href="#res">リソース一覧</a><a href="#build">構築手順</a><a href="#simplify">簡単にする工夫</a><a href="#caution">注意点</a></nav>
+
+<section class="band alt" id="why"><div class="wrap">
+<h2>構成案の比較：要件をすべて満たすのは「全リージョナル」だけ</h2>
+<p class="sub">要件は「LBを東京と大阪で分ける」「証明書を自動更新する」「同じFQDNを使う」「プライベート通信のみ」の4つです。考えられる構成案を、それぞれの要件に照らして比べました。</p>
+<div class="scroll">
+<table class="star">
+<thead><tr><th>構成案</th><th>構成できるか</th><th>LBを東京・大阪で分離</th><th>証明書の自動更新</th><th>東京被災中も大阪で更新を継続</th><th>端末に配るルートCAが1つ</th><th>判定</th></tr></thead>
+<tbody>
+<tr class="best"><td><b>A. 全リージョナル（本設計）</b><br><span class="small">ルートCAは東京に1つ、下位CA・発行構成・証明書・ALBを各リージョンに置く</span></td><td class="o">◎</td><td class="o">◎</td><td class="o">◎</td><td class="o">◎</td><td class="o">◎</td><td><span class="adopt">採用</span></td></tr>
+<tr><td>B. CASをグローバルにする</td><td class="x">×</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="small">不可：CAプールはリージョン指定が必須で、グローバルが存在しない</td></tr>
+<tr><td>C. Certificate Managerのグローバル証明書を、リージョナルALBに設定する</td><td class="x">×</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="small">不可：リージョナルALBにはリージョナル証明書しか設定できない</td></tr>
+<tr><td>D. 東京のCAプールを大阪の発行構成から参照する</td><td class="x">×</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="small">不可：CAプール、発行構成、証明書は同じリージョンに揃える必要がある</td></tr>
+<tr><td>E. リージョン間内部ALBとグローバル証明書を使う</td><td class="o">○</td><td class="x">×</td><td class="o">○</td><td class="t">△</td><td class="o">○</td><td class="small">要件外：LBの設定が東京・大阪で共通の1セットになり、分離できない</td></tr>
+<tr><td>F. 東京のCASで1回だけ発行し、両方のリージョンにアップロードする（セルフマネージド）</td><td class="o">○</td><td class="o">○</td><td class="x">×</td><td class="x">×</td><td class="o">○</td><td class="small">要件外：証明書を手動で更新する必要がある</td></tr>
+<tr><td>G. 全リージョナルだが、ルートCAを東京・大阪で別々に作る</td><td class="o">○</td><td class="o">○</td><td class="o">○</td><td class="o">◎</td><td class="t">△</td><td class="small">可能だが劣る：端末に配るルート証明書が2つになり、管理の手間が増える</td></tr>
+</tbody></table>
+</div>
+<p class="small">◎ 最適　○ 満たす　△ 一部満たす・負担が増える　× 満たさない／構成できない　— 構成できないため評価対象外</p>
+</div></section>
+
+<section class="band" id="board"><div class="wrap" id="modeRoot" data-mode="normal">
+<h2>構成図：通常時と災対時の切り替え</h2>
+<p class="sub">ボタンで通常時と災対時を切り替えると、名前解決の結果と通信経路の変化が見られます。</p>
+<div class="switch" role="group" aria-label="表示モード">
+<button type="button" id="bN" aria-pressed="true">通常時（東京を利用）</button>
+<button type="button" id="bD" class="dr" aria-pressed="false">災対時（大阪を利用）</button>
+</div>
+<div class="board">
+<figure>
+<svg class="dg" viewBox="0 0 1000 640" role="img" aria-label="東京と大阪にそれぞれ内部ALB、業務サーバ2台、Certificate Managerの証明書、CASの下位CAを置き、東京のルートCAで両方の下位CAに署名する。クライアントはCloud DNSで名前解決してからALBに接続する。">
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a9c1d9"/></marker>
+<marker id="arS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8fd3ff"/></marker>
+<marker id="arP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ff5c8a"/></marker>
+</defs>
+<!-- top row -->
+<rect class="bx" x="20" y="16" width="300" height="60" rx="8"/>
+<text class="t" x="36" y="40">ルートCA証明書</text>
+<text class="s" x="36" y="60">クライアント端末の信頼ストアに配布済み</text>
+<rect class="bx" x="380" y="16" width="240" height="60" rx="8" style="stroke:#fff"/>
+<text class="t" x="500" y="40" text-anchor="middle">社内クライアント</text>
+<text class="s" x="500" y="60" text-anchor="middle">VPC内 / オンプレ（VPN・Interconnect）</text>
+<rect class="bx" x="680" y="16" width="300" height="60" rx="8"/>
+<text class="t" x="696" y="38">Cloud DNS（限定公開ゾーン）</text>
+<text class="s" x="696" y="56">test.sample.com：フェイルオーバー</text>
+<text id="dnsAns" x="696" y="71" style="font-size:11.5px;font-weight:700;fill:#8fd3ff">応答 → 10.10.0.10（東京）</text>
+<path class="ln" d="M320,46 H376" marker-end="url(#ar)"/>
+<path class="ln" d="M620,40 H676" marker-end="url(#ar)"/>
+<path class="ln" d="M676,54 H624" marker-end="url(#ar)"/>
+<text class="lab" x="648" y="34" text-anchor="middle">① 問合せ</text>
+<text class="lab" x="648" y="70" text-anchor="middle">② 応答</text>
+<!-- traffic -->
+<path class="tr tr-tk" d="M450,76 C450,120 300,120 270,164" marker-end="url(#arS)"/>
+<path class="tr tr-os" d="M550,76 C550,120 700,120 730,164" marker-end="url(#arP)"/>
+<text class="lab" x="342" y="110">③ HTTPS:443</text>
+<text class="lab" x="600" y="110">③ HTTPS:443</text>
+<!-- Tokyo -->
+<g class="rtk">
+<rect class="rg" x="20" y="124" width="470" height="500" rx="12"/>
+<text class="rl" x="40" y="152" fill="#8fd3ff">東京 asia-northeast1</text>
+<rect class="bx" x="60" y="168" width="390" height="62" rx="8" style="stroke:#8fd3ff"/>
+<text class="t" x="76" y="193">内部ALB（リージョナル）</text>
+<text class="s" x="76" y="214">VIP 10.10.0.10:443 ／ グローバルアクセス ON</text>
+<path class="ln" d="M170,230 V258" marker-end="url(#ar)"/><path class="ln" d="M340,230 V258" marker-end="url(#ar)"/>
+<rect class="bx" x="80" y="260" width="180" height="50" rx="8"/><text class="t" x="170" y="290" text-anchor="middle">業務サーバ #1</text>
+<rect class="bx" x="250" y="260" width="180" height="50" rx="8" transform="translate(0,0)"/><text class="t" x="340" y="290" text-anchor="middle">業務サーバ #2</text>
+<rect class="bx" x="60" y="342" width="390" height="62" rx="8"/>
+<text class="t" x="76" y="367">Certificate Manager</text>
+<text class="s" x="76" y="388">証明書 cert-tokyo ← 発行構成 ic-tokyo</text>
+<path class="ln" d="M60,373 H42 V199 H56" marker-end="url(#ar)"/>
+<text class="lab" x="38" y="290" transform="rotate(-90 38 290)" text-anchor="middle">証明書を設定</text>
+<rect class="bx" x="60" y="436" width="390" height="152" rx="8"/>
+<text class="t" x="76" y="460">Certificate Authority Service</text>
+<rect class="bx" x="80" y="476" width="160" height="54" rx="6" style="stroke:#fff"/>
+<text class="t" x="160" y="499" text-anchor="middle">ルートCA</text><text class="s" x="160" y="518" text-anchor="middle">root-pool</text>
+<rect class="bx" x="270" y="476" width="160" height="54" rx="6"/>
+<text class="t" x="350" y="499" text-anchor="middle">下位CA 東京</text><text class="s" x="350" y="518" text-anchor="middle">sub-pool-tokyo</text>
+<path class="ln" d="M240,503 H266" marker-end="url(#ar)"/>
+<path class="ln" d="M350,476 V408" marker-end="url(#ar)"/>
+<text class="lab" x="358" y="446">発行・自動更新</text>
+<text class="s" x="76" y="560">ルートは下位CAの署名にだけ使う</text>
+</g>
+<!-- Osaka -->
+<g class="ros">
+<rect class="rg" x="510" y="124" width="470" height="500" rx="12"/>
+<text class="rl" x="530" y="152" fill="#ff5c8a">大阪 asia-northeast2</text>
+<rect class="bx" x="550" y="168" width="390" height="62" rx="8" style="stroke:#ff5c8a"/>
+<text class="t" x="566" y="193">内部ALB（リージョナル）</text>
+<text class="s" x="566" y="214">VIP 10.20.0.10:443 ／ グローバルアクセス ON</text>
+<path class="ln" d="M660,230 V258" marker-end="url(#ar)"/><path class="ln" d="M830,230 V258" marker-end="url(#ar)"/>
+<rect class="bx" x="570" y="260" width="180" height="50" rx="8"/><text class="t" x="660" y="290" text-anchor="middle">業務サーバ #3</text>
+<rect class="bx" x="740" y="260" width="180" height="50" rx="8"/><text class="t" x="830" y="290" text-anchor="middle">業務サーバ #4</text>
+<rect class="bx" x="550" y="342" width="390" height="62" rx="8"/>
+<text class="t" x="566" y="367">Certificate Manager</text>
+<text class="s" x="566" y="388">証明書 cert-osaka ← 発行構成 ic-osaka</text>
+<path class="ln" d="M550,373 H532 V199 H546" marker-end="url(#ar)"/>
+<rect class="bx" x="550" y="436" width="390" height="152" rx="8"/>
+<text class="t" x="566" y="460">Certificate Authority Service</text>
+<text class="s" x="572" y="496">ルートCAは置かない</text>
+<text class="s" x="572" y="514">（東京のルートで署名済み）</text>
+<rect class="bx" x="760" y="476" width="160" height="54" rx="6"/>
+<text class="t" x="840" y="499" text-anchor="middle">下位CA 大阪</text><text class="s" x="840" y="518" text-anchor="middle">sub-pool-osaka</text>
+<path class="ln" d="M840,476 V408" marker-end="url(#ar)"/>
+<text class="lab" x="848" y="446">発行・自動更新</text>
+</g>
+<path class="lnd" d="M160,530 V606 H840 V534" marker-end="url(#ar)"/>
+<text class="lab" x="500" y="600" text-anchor="middle">署名（下位CAを作るときだけ）</text>
+<g id="down"><rect x="150" y="300" width="210" height="44" rx="8" fill="#ff5c8a"/><text x="255" y="328" text-anchor="middle" style="fill:#fff;font-size:15px;font-weight:700">東京リージョン障害</text></g>
+</svg>
+<figcaption>どちらのリージョンも、同じFQDN（test.sample.com）の証明書を自分のリージョンのCAから発行します。証明書は両方同じルートCAにつながるので、クライアントはどちらに接続しても警告なしでつながります。</figcaption>
+</figure>
+<aside class="steps" aria-live="polite">
+<div class="only-n">
+<h3>通常時：名前解決と経路</h3>
+<ol class="tight">
+<li>クライアントが <code>test.sample.com</code> を問い合わせます（VPC内はCloud DNS、オンプレからは受信転送を経由）。</li>
+<li>フェイルオーバーポリシーで、プライマリの<strong>東京ALB</strong>が正常と判定され、<code>10.10.0.10</code> を返します。</li>
+<li>クライアントは東京ALBにHTTPSで接続します。ALBは <code>cert-tokyo</code> を提示します。</li>
+<li>端末は、ルートCA → 下位CA 東京 → cert-tokyo の順に証明書をたどって検証し、接続を確立します。</li>
+<li>東京ALBが業務サーバ #1・#2 に負荷分散します。</li>
+</ol>
+<p class="small">大阪は待機中です。ALB・証明書・サーバはすべて動いていて、証明書の自動更新も続いています。</p>
+</div>
+<div class="only-dr">
+<h3>災対時：名前解決と経路</h3>
+<ol class="tight">
+<li>東京ALBのヘルスチェックが失敗します（自動切替）。または、運用者がDNSレコードのプライマリを大阪に変更します（手動切替）。</li>
+<li>Cloud DNSが<strong>大阪ALB</strong>の <code>10.20.0.10</code> を返します。各端末に残っている古い応答は、TTL（30秒）が切れると更新されます。</li>
+<li>クライアントは大阪ALBに接続します。ALBは <code>cert-osaka</code> を提示します。</li>
+<li>端末は、ルートCA → 下位CA 大阪 → cert-osaka の順に検証します。<strong>FQDNもルートCAも同じなので、端末側の変更はいりません。</strong></li>
+<li>大阪ALBが業務サーバ #3・#4 に負荷分散します。</li>
+</ol>
+<p class="small">変更が必要なのはDNSの応答だけです。証明書・ALB・CASには手を入れません。</p>
+</div>
+</aside>
+</div>
+</div></section>
+
+<section class="band alt" id="diff"><div class="wrap">
+<h2>切替時に変更する箇所：DNSだけ</h2>
+<p class="sub">事前に両リージョンを完成させておくのが前提です。災対時に設定を変えるのはDNSの1か所だけにしてあります。</p>
+<table class="stack">
+<thead><tr><th>項目</th><th>通常時（東京）</th><th>災対時（大阪）</th><th>切替時の作業</th></tr></thead>
+<tbody>
+<tr><td>DNSの応答（test.sample.com）</td><td class="tk">10.10.0.10</td><td class="os">10.20.0.10</td><td><span class="chg">変更あり</span> 通常はヘルスチェックで自動。検知できない障害のときは手動でプライマリを大阪に変える</td></tr>
+<tr><td>クライアントの接続先</td><td class="tk">東京ALB</td><td class="os">大阪ALB</td><td><span class="nochg">不要</span> FQDNは同じ。DNSに従うだけ</td></tr>
+<tr><td>サーバ証明書</td><td class="tk">cert-tokyo</td><td class="os">cert-osaka</td><td><span class="nochg">不要</span> 両方とも常に有効で、自動更新される</td></tr>
+<tr><td>端末の信頼ストア</td><td>ルートCA</td><td>同じルートCA</td><td><span class="nochg">不要</span></td></tr>
+<tr><td>内部ALB</td><td class="tk">東京を利用</td><td class="os">大阪を利用</td><td><span class="nochg">不要</span> 大阪も常に稼働中。グローバルアクセスはON</td></tr>
+<tr><td>CAS</td><td class="tk">東京の下位CAが発行</td><td class="os">大阪の下位CAが発行</td><td><span class="nochg">不要</span> 東京のルートCAが使えなくても、大阪の更新は止まらない</td></tr>
+<tr><td>オンプレのDNS転送先</td><td colspan="2">東京と大阪、両方の受信ポリシーIPを登録しておく</td><td><span class="nochg">不要</span> 片方だけだと、東京が被災したとき名前解決できなくなる</td></tr>
+<tr><td>業務サーバ・データ</td><td class="tk">#1・#2</td><td class="os">#3・#4</td><td><span class="chg">要確認</span> 大阪側のデータ同期・起動状態はアプリ側の設計で担保する</td></tr>
+</tbody></table>
+</div></section>
+
+<section class="band" id="ca"><div class="wrap">
+<h2>ルートCAの仕組み：ルートは1つ、各リージョンには下位CAを置く</h2>
+<p class="sub">ルートCAは、1つの鍵とそれに対応する1枚の証明書でできた、1つの存在です。東京と大阪で別々に作ると、名前が同じでも鍵が違う「別のルートCA」になります。また、同じルートCAを大阪にコピーすることもできません。</p>
+<div class="two">
+<div>
+<div class="chain">
+<div class="cr">ルートCA（東京に1つ）<span>端末が信頼するのはここだけ</span></div>
+<div class="cbr">
+<div class="cs tkb">下位CA 東京<span>→ cert-tokyo（test.sample.com）</span></div>
+<div class="cs osb">下位CA 大阪<span>→ cert-osaka（test.sample.com）</span></div>
+</div>
+</div>
+<p>会社に例えると、ルートCAは<strong>本社の実印</strong>、下位CAは<strong>本社が認めた支社の印鑑</strong>です。端末は本社の実印だけを信頼していて、本社が認めた支社の印鑑もたどって信頼します。そのため、どちらの証明書を出されてもルートCAに行き着き、警告は出ません。</p>
+</div>
+<div>
+<h3 style="margin-top:0">CASでの作り方</h3>
+<ol class="tight">
+<li>東京に、ルートCA用のCAプール（root-pool）とルートCAを作ります。</li>
+<li>東京に下位CA用のCAプールを作り、そこで下位CAを作ります。発行元には東京のroot-poolを指定します。</li>
+<li>大阪にも下位CA用のCAプールを作り、そこで下位CAを作ります。発行元には<strong>東京の</strong>root-poolを指定します。CASは、リージョンをまたいだ発行元の指定ができます（<code>--issuer-location=asia-northeast1</code>）。GUIでは「CAを作成」→「下位CA」→「発行元」で選びます。</li>
+</ol>
+<div class="note i"><strong>ルートCAを使うのは、下位CAを作るときと更新するとき（数年に1回）だけです。</strong>毎日の証明書の発行・自動更新は、それぞれの下位CAが行います。そのため、東京が被災してルートCAが使えなくなっても、大阪の業務は止まりません。</div>
+<div class="note i"><strong>社内にすでにルートCAがある場合：</strong>例えばActive Directory証明書サービスのルートCAが全端末に配布済みなら、そのルートCAでCASの下位CAに署名してもらう方法もあります。CASで下位CAを作るときに「外部のCAで署名」を選ぶとCSR（署名要求）が出るので、社内のルートCAで署名して戻します。この方法なら、端末に新しいルート証明書を配らなくて済みます。</div>
+</div>
+</div>
+</div></section>
+
+<section class="band alt" id="ip"><div class="wrap">
+<h2>10.10.0.10と10.20.0.10は、LB自体のIP</h2>
+<p class="sub">内部ALBの「フロントエンドIP」（転送ルールのIP）で、仮想IP（VIP）とも言います。クライアントが接続する先で、DNSが返すのもこのIPです。特定のVMに付いたIPではなく、各リージョンのサブネットから割り当てます。</p>
+<table class="stack">
+<thead><tr><th>種類</th><th>東京の例</th><th>大阪の例</th><th>役割</th></tr></thead>
+<tbody>
+<tr><td>サブネット</td><td class="tk">10.10.0.0/24</td><td class="os">10.20.0.0/24</td><td>リージョンごとのIP範囲。VPCは全リージョン共通だが、サブネットはリージョンごとに作る</td></tr>
+<tr><td><b>LBのフロントエンドIP</b></td><td class="tk"><b>10.10.0.10</b></td><td class="os"><b>10.20.0.10</b></td><td>クライアントが接続する先（DNSの応答）。静的な内部IPとして予約しておくのがおすすめ</td></tr>
+<tr><td>業務サーバのIP</td><td class="tk">10.10.0.21 / .22</td><td class="os">10.20.0.21 / .22</td><td>LBの裏側。クライアントは直接接続しない</td></tr>
+<tr><td>プロキシ専用サブネット</td><td class="tk">10.10.100.0/23</td><td class="os">10.20.100.0/23</td><td>LBの内部プロキシが使う範囲。サーバから見ると、通信元はこの範囲になる</td></tr>
+</tbody></table>
+<div class="note i"><strong>サーバのファイアウォールに注意：</strong>サーバへの通信は、クライアントのIPではなく、LBのプロキシのIPから届きます。そのため、プロキシ専用サブネットからの通信を許可する必要があります。ヘルスチェック用のIP範囲も同様に許可します。フロントエンドIPは、GUIではALB作成時の「フロントエンドの構成」→「IPアドレス」で予約できます。</div>
+</div></section>
+
+<section class="band" id="dns"><div class="wrap">
+<h2>DNS設計：限定公開ゾーンのフェイルオーバーポリシー</h2>
+<p class="sub">名前解決は社内だけで完結させます。外部には公開しません。</p>
+<div class="two">
+<div>
+<table class="stack">
+<thead><tr><th>設定項目</th><th>値</th></tr></thead>
+<tbody>
+<tr><td>ゾーン</td><td>限定公開ゾーン <code>sample.com.</code>（業務VPCに公開）</td></tr>
+<tr><td>レコード</td><td><code>test.sample.com.</code> A</td></tr>
+<tr><td>ルーティングポリシー</td><td>フェイルオーバー</td></tr>
+<tr><td>プライマリ</td><td>東京ALBの転送ルール <code>fr-tokyo</code>（10.10.0.10）</td></tr>
+<tr><td>バックアップ</td><td>大阪ALBの転送ルール <code>fr-osaka</code>（10.20.0.10）</td></tr>
+<tr><td>ヘルスチェック</td><td>有効（<code>--enable-health-checking</code>）</td></tr>
+<tr><td>TTL</td><td>30秒</td></tr>
+<tr><td>トリクル比率</td><td>0（通常時は大阪に流さない）</td></tr>
+<tr><td>オンプレ連携</td><td>受信サーバーポリシーを作り、東京・大阪の両方のサブネットにある受信IPを、オンプレDNSの条件付き転送先に登録</td></tr>
+</tbody></table>
+</div>
+<div>
+<div class="note"><strong>内部ALBのヘルスチェックには限界があります。</strong>Cloud DNSが内部ALBについて見ているのは、ALBのプロキシが生きているかどうかだけです。バックエンドのサーバが2台とも落ちても、自動では切り替わらないことがあります。<br>対策として、Cloud Monitoringで東京のバックエンドの状態を監視し、アラートが出たら手動で切り替える手順を用意してください（<a href="#runbook" style="color:var(--sky)">手順はこちら</a>）。</div>
+<div class="note i"><strong>グローバルアクセスを有効にしておきます。</strong>大阪のサブネットにいるクライアントや、オンプレの大阪側の回線から東京ALBにつなぐ場合（その逆も）は、転送ルールで <code>--allow-global-access</code> が必要です。</div>
+<div class="note i"><strong>同じFQDNでも問題ありません。</strong>証明書は別リソースなので、同じFQDNでも衝突しません。DNS認証も使わないので、CNAMEレコードの登録もいりません。</div>
+</div>
+</div>
+</div></section>
+
+<section class="band alt" id="runbook"><div class="wrap">
+<h2>切替・切戻し手順</h2>
+<div class="two">
+<div>
+<h3>A. 自動切替（東京ALBそのものの障害）</h3>
+<ol class="tight">
+<li>Cloud DNSが東京ALBを異常と判定し、自動的に大阪のIPを返し始めます。</li>
+<li>運用者は、<code>dig test.sample.com</code> の結果が <code>10.20.0.10</code> になったことを確認します。</li>
+<li>業務の疎通確認をします（大阪ALB経由で、証明書の警告が出ないこと）。</li>
+</ol>
+<h3>B. 手動切替（バックエンド障害・計画切替）</h3>
+<ol class="tight">
+<li>レコードのプライマリを大阪に、バックアップを東京に入れ替えます（下のコマンド）。</li>
+<li>TTL（30秒）が過ぎてから、名前解決の結果と業務の疎通を確認します。</li>
+<li>オンプレのDNSキャッシュが残っている場合は、必要に応じてクリアします。</li>
+</ol>
+<div class="cb"><pre><code>gcloud dns record-sets update test.sample.com. \
+  --zone=zone-sample --type=A --ttl=30 \
+  --routing-policy-type=FAILOVER \
+  --routing-policy-primary-data=fr-osaka@asia-northeast2 \
+  --routing-policy-backup-data-type=GEO \
+  --routing-policy-backup-data="asia-northeast1=fr-tokyo@asia-northeast1" \
+  --backup-data-trickle-ratio=0 \
+  --enable-health-checking</code></pre></div>
+</div>
+<div>
+<h3>C. 切戻し（東京の復旧後）</h3>
+<ol class="tight">
+<li>東京の業務サーバとデータの整合性が取れたことを確認します（アプリ側）。</li>
+<li>東京ALB経由で直接疎通確認をします（<code>curl --resolve test.sample.com:443:10.10.0.10 https://test.sample.com/</code>）。</li>
+<li>自動切替だった場合は、ヘルスチェックが正常に戻ると自動で東京に戻ります。手動切替だった場合は、プライマリを東京に戻します（下のコマンド）。</li>
+<li>名前解決が <code>10.10.0.10</code> に戻ったことを確認します。</li>
+</ol>
+<div class="cb"><pre><code>gcloud dns record-sets update test.sample.com. \
+  --zone=zone-sample --type=A --ttl=30 \
+  --routing-policy-type=FAILOVER \
+  --routing-policy-primary-data=fr-tokyo@asia-northeast1 \
+  --routing-policy-backup-data-type=GEO \
+  --routing-policy-backup-data="asia-northeast2=fr-osaka@asia-northeast2" \
+  --backup-data-trickle-ratio=0 \
+  --enable-health-checking</code></pre></div>
+<div class="note i"><strong>年1回は切替訓練をしてください。</strong>リージョン専用の名前（<a href="#simplify" style="color:var(--sky)">簡単にする工夫①</a>）を使うと、DNSを切り替えなくても大阪側を事前に確認できます。そのうえで手順Bで大阪に切り替えて、証明書の検証と業務の疎通を確認します。大阪の証明書が期限切れになっていないかも、このときに確認します。</div>
+</div>
+</div>
+</div></section>
+
+<section class="band" id="res"><div class="wrap">
+<h2>リソース一覧</h2>
+<p class="sub">名前・IP・FQDNはサンプル値です。実環境の値に置き換えてください。</p>
+<table class="stack">
+<thead><tr><th>サービス</th><th>リソース</th><th>東京 asia-northeast1</th><th>大阪 asia-northeast2</th></tr></thead>
+<tbody>
+<tr><td>CAS</td><td>CAプール（ルート）</td><td class="tk">root-pool ／ ルートCA root-ca</td><td>なし</td></tr>
+<tr><td>CAS</td><td>CAプール（下位）</td><td class="tk">sub-pool-tokyo ／ sub-ca-tokyo</td><td class="os">sub-pool-osaka ／ sub-ca-osaka</td></tr>
+<tr><td>Certificate Manager</td><td>発行構成</td><td class="tk">ic-tokyo → sub-pool-tokyo</td><td class="os">ic-osaka → sub-pool-osaka</td></tr>
+<tr><td>Certificate Manager</td><td>証明書（Googleマネージド・プライベート）</td><td class="tk">cert-tokyo（test.sample.com）</td><td class="os">cert-osaka（test.sample.com）</td></tr>
+<tr><td>Load Balancing</td><td>ターゲットHTTPSプロキシ</td><td class="tk">proxy-tokyo（cert-tokyoを直接設定）</td><td class="os">proxy-osaka（cert-osakaを直接設定）</td></tr>
+<tr><td>Load Balancing</td><td>転送ルール</td><td class="tk">fr-tokyo 10.10.0.10:443</td><td class="os">fr-osaka 10.20.0.10:443</td></tr>
+<tr><td>VPC</td><td>プロキシ専用サブネット</td><td class="tk">必要（リージョンに1つ）</td><td class="os">必要（リージョンに1つ）</td></tr>
+<tr><td>Compute</td><td>業務サーバ（インスタンスグループ）</td><td class="tk">#1・#2</td><td class="os">#3・#4</td></tr>
+<tr><td>Cloud DNS</td><td>限定公開ゾーン・レコード</td><td colspan="2">zone-sample ／ test.sample.com.（フェイルオーバー、グローバルリソース）</td></tr>
+</tbody></table>
+</div></section>
+
+<section class="band alt" id="build"><div class="wrap">
+<h2>構築手順（gcloudの例）</h2>
+<p class="sub">この順番で作ります。PROJECT_ID と PROJECT_NUMBER は置き換えてください。フラグは、実行前に公式リファレンスで確認をお願いします。</p>
+
+<h3>1. CAS：ルートCA（東京に1回だけ作る）</h3>
+<div class="cb"><pre><code>gcloud privateca pools create root-pool --location=asia-northeast1 --tier=enterprise
+gcloud privateca roots create root-ca --pool=root-pool --location=asia-northeast1 \
+  --subject="CN=Sample Root CA, O=Sample" --key-algorithm=ec-p384-sha384 --validity=P10Y
+gcloud privateca roots enable root-ca --pool=root-pool --location=asia-northeast1</code></pre></div>
+
+<h3>2. CAS：下位CA（東京・大阪）</h3>
+<div class="cb"><pre><code># 東京
+gcloud privateca pools create sub-pool-tokyo --location=asia-northeast1 --tier=enterprise
+gcloud privateca subordinates create sub-ca-tokyo --pool=sub-pool-tokyo --location=asia-northeast1 \
+  --issuer-pool=root-pool --issuer-location=asia-northeast1 \
+  --subject="CN=Sample Sub CA Tokyo, O=Sample" --key-algorithm=ec-p256-sha256
+
+# 大阪(発行元は東京のルート)
+gcloud privateca pools create sub-pool-osaka --location=asia-northeast2 --tier=enterprise
+gcloud privateca subordinates create sub-ca-osaka --pool=sub-pool-osaka --location=asia-northeast2 \
+  --issuer-pool=root-pool --issuer-location=asia-northeast1 \
+  --subject="CN=Sample Sub CA Osaka, O=Sample" --key-algorithm=ec-p256-sha256</code></pre></div>
+
+<h3>3. Certificate Managerのサービスアカウントに、CAプールから発行する権限を付ける</h3>
+<div class="cb"><pre><code>gcloud beta services identity create --service=certificatemanager.googleapis.com --project=PROJECT_ID
+for P in "sub-pool-tokyo asia-northeast1" "sub-pool-osaka asia-northeast2"; do set -- $P
+  gcloud privateca pools add-iam-policy-binding $1 --location=$2 \
+    --member="serviceAccount:service-PROJECT_NUMBER@gcp-sa-certificatemanager.iam.gserviceaccount.com" \
+    --role="roles/privateca.certificateRequester"
+done</code></pre></div>
+
+<h3>4. Certificate Manager：発行構成と証明書（同じFQDN）</h3>
+<div class="cb"><pre><code>gcloud certificate-manager issuance-configs create ic-tokyo --location=asia-northeast1 \
+  --ca-pool=projects/PROJECT_ID/locations/asia-northeast1/caPools/sub-pool-tokyo
+gcloud certificate-manager certificates create cert-tokyo --location=asia-northeast1 \
+  --domains="test.sample.com" --issuance-config=ic-tokyo
+
+gcloud certificate-manager issuance-configs create ic-osaka --location=asia-northeast2 \
+  --ca-pool=projects/PROJECT_ID/locations/asia-northeast2/caPools/sub-pool-osaka
+gcloud certificate-manager certificates create cert-osaka --location=asia-northeast2 \
+  --domains="test.sample.com" --issuance-config=ic-osaka</code></pre></div>
+<p class="small">GUIで作る場合は、「証明書を作成」画面で、場所＝リージョン、Googleマネージド、認証局タイプ＝プライベートを選び、そのリージョンの発行構成を選択します。DNS認証の欄は出ませんが、それで正しい状態です。</p>
+
+<h3>5. 内部ALB：プロキシと転送ルール（大阪も同じように作る）</h3>
+<div class="cb"><pre><code>gcloud compute target-https-proxies create proxy-tokyo --region=asia-northeast1 \
+  --url-map=um-tokyo --certificate-manager-certificates=cert-tokyo
+gcloud compute forwarding-rules create fr-tokyo --region=asia-northeast1 \
+  --load-balancing-scheme=INTERNAL_MANAGED --network=vpc-main --subnet=snet-tokyo \
+  --address=10.10.0.10 --ports=443 \
+  --target-https-proxy=proxy-tokyo --target-https-proxy-region=asia-northeast1 \
+  --allow-global-access</code></pre></div>
+
+<h3>6. Cloud DNS：限定公開ゾーンとフェイルオーバーレコード</h3>
+<div class="cb"><pre><code>gcloud dns managed-zones create zone-sample --dns-name="sample.com." \
+  --visibility=private --networks=vpc-main --description="internal zone"
+gcloud dns record-sets create test.sample.com. --zone=zone-sample --type=A --ttl=30 \
+  --routing-policy-type=FAILOVER \
+  --routing-policy-primary-data=fr-tokyo@asia-northeast1 \
+  --routing-policy-backup-data-type=GEO \
+  --routing-policy-backup-data="asia-northeast2=fr-osaka@asia-northeast2" \
+  --backup-data-trickle-ratio=0 --enable-health-checking</code></pre></div>
+
+<h3>7. 端末にルートCA証明書を配る</h3>
+<div class="cb"><pre><code>gcloud privateca roots describe root-ca --pool=root-pool --location=asia-northeast1 \
+  --format="value(pemCaCertificates)" &gt; sample-root-ca.pem</code></pre></div>
+<p class="small">取り出したPEMを、GPOやMDMで端末の「信頼されたルート証明機関」に配布します。</p>
+</div></section>
+
+<section class="band" id="simplify"><div class="wrap">
+<h2>構成を簡単にする工夫：一番効くのは「名前」より「コード化」</h2>
+<p class="sub">サブドメインを工夫しても、必要なリソースは減りません。証明書、CAプール、LBを同じリージョンで組む必要があるのは、リソースの配置に関する制約で、FQDNの付け方とは関係がないからです。そのため、構成そのものは「各リージョンに1セット」のまま変えず、扱いやすくする工夫を加えます。</p>
+<table class="stack">
+<thead><tr><th>工夫</th><th>内容</th><th>効果</th><th>注意点</th><th>推奨</th></tr></thead>
+<tbody>
+<tr><td><b>B. 構築をコード化する（Terraformなど）</b></td><td>1リージョン分のセット（CAS、Certificate Manager、ALB、サーバ）を1つのモジュールにまとめ、リージョン名とIPだけ変えて2回呼び出す</td><td>「1リージョン分の構成 × 2」として作れる・説明できる。東京と大阪で設定がずれない</td><td>コードを管理する体制が必要</td><td><span class="adopt">推奨</span></td></tr>
+<tr><td><b>①リージョン専用の名前を証明書に追加する</b></td><td>証明書のFQDNに、<code>test.sample.com</code> に加えて <code>tokyo.test.sample.com</code> / <code>osaka.test.sample.com</code> を入れ、DNSにも各リージョンのA レコードを作る</td><td>DNSを切り替えなくても、各リージョンのLBを直接確認できる（切替訓練・切戻し前の確認）</td><td>リソースは減らない（運用を楽にするための工夫）</td><td><span class="adopt">推奨</span></td></tr>
+<tr><td><b>A. CAを3つから2つに減らす</b></td><td>東京ではルートCAから直接証明書を発行し、大阪だけ下位CAを置く</td><td>CAが1つ減り、月額料金と管理の手間が減る</td><td>ルートCAの鍵を毎日の発行に使うことになり、ベストプラクティスから外れる</td><td class="small">リスクを受け入れられるなら</td></tr>
+<tr><td>②ワイルドカード証明書（*.sample.com）にする</td><td>証明書の名前をワイルドカードにする</td><td>名前を追加するときの作業は楽になる</td><td>リージョンごとに1枚ずつ必要なのは変わらない。対象の範囲が広くなりすぎる</td><td class="small">効果は薄い</td></tr>
+<tr><td>C. 証明書を自作の仕組みで更新する</td><td>CAプールを東京だけに置き、Cloud Schedulerと関数で、証明書を発行して東京・大阪の両方にアップロードする</td><td>CASが1リージョンで済む</td><td>自作の更新処理を保守する必要がある。東京が被災すると更新が止まる</td><td class="small">非推奨</td></tr>
+</tbody></table>
+
+<div class="two" style="margin-top:22px">
+<div>
+<h3 style="margin-top:0">B. コード化のイメージ（Terraform）</h3>
+<div class="cb"><pre><code># modules/region_stack: 1リージョン分(CAプール・下位CA・発行構成・証明書・ALB・サーバ)
+module "tokyo" {
+  source      = "./modules/region_stack"
+  region      = "asia-northeast1"
+  name        = "tokyo"
+  lb_ip       = "10.10.0.10"
+  fqdns       = ["test.sample.com", "tokyo.test.sample.com"]
+  root_pool   = google_privateca_ca_pool.root.id   # 共通のルートCA
+}
+
+module "osaka" {
+  source      = "./modules/region_stack"
+  region      = "asia-northeast2"
+  name        = "osaka"
+  lb_ip       = "10.20.0.10"
+  fqdns       = ["test.sample.com", "osaka.test.sample.com"]
+  root_pool   = google_privateca_ca_pool.root.id
+}
+
+# DNS(フェイルオーバー)は共通部分として1回だけ定義
+# primary = module.tokyo.forwarding_rule / backup = module.osaka.forwarding_rule</code></pre></div>
+</div>
+<div>
+<h3 style="margin-top:0">①リージョン専用の名前を使った確認方法</h3>
+<div class="cb"><pre><code># 証明書(各リージョンに、共通名とそのリージョン専用の名前を入れる)
+gcloud certificate-manager certificates create cert-osaka --location=asia-northeast2 \
+  --domains="test.sample.com,osaka.test.sample.com" --issuance-config=ic-osaka
+
+# DNS(通常のAレコード。ルーティングポリシーはなし)
+gcloud dns record-sets create osaka.test.sample.com. --zone=zone-sample \
+  --type=A --ttl=300 --rrdatas=10.20.0.10
+
+# 切替前に大阪側だけを確認
+curl -v https://osaka.test.sample.com/</code></pre></div>
+<div class="note i"><strong>業務の接続先は、引き続き <code>test.sample.com</code> だけです。</strong>リージョン専用の名前は、運用者が確認に使うためのもので、利用者には案内しません。</div>
+</div>
+</div>
+</div></section>
+
+<section class="band alt" id="caution"><div class="wrap">
+<h2>注意点</h2>
+<ul class="tight">
+<li><strong>リージョンを揃える：</strong>CAプール、発行構成、証明書は同じリージョンに作ります。大阪の証明書を東京のCAプールから発行することはできません。</li>
+<li><strong>証明書マップは使わない：</strong>リージョナルの内部ALBでは、ターゲットHTTPSプロキシに証明書を直接設定します。</li>
+<li><strong>ルートCAの置き場所：</strong>東京が被災すると、ルートCAは使えなくなります。それでも大阪の下位CAは発行を続けられるので、運用への影響はありません。新しい下位CAを作るのは、東京が復旧してからにします。</li>
+<li><strong>有効期間の目安：</strong>ルートCAは10年程度、下位CAは5年程度にします。下位CAの期限が近づいたら、新しい下位CAを作って入れ替えます（これは自動更新されないので、計画的な作業が必要です）。</li>
+<li><strong>証明書の監視：</strong>証明書は自動更新されますが、Cloud Monitoringで期限と更新失敗のアラートを設定しておくと安心です。特に、普段使わない大阪側は見落としやすいので注意してください。</li>
+<li><strong>証明書のピン留めは避ける：</strong>アプリが証明書そのものをピン留めしていると、大阪に切り替えたときに接続エラーになります。信頼の基準はルートCAにします。</li>
+<li><strong>CASの階層とコスト：</strong>ここではEnterprise階層の例を挙げています。CAごとに月額料金がかかるので、全部で3つ（ルート1・下位2）の費用を見込んでください。</li>
+<li><strong>オンプレからの名前解決：</strong>受信転送の受け口は、東京と大阪の両方を登録します。オンプレとの回線（VPN・Interconnect）も、大阪側を用意しておく必要があります。</li>
+</ul>
+</div></section>
+
+<script>
+{
+const root=document.getElementById('modeRoot'),bN=document.getElementById('bN'),bD=document.getElementById('bD'),ans=document.getElementById('dnsAns');
+const set=m=>{root.dataset.mode=m;bN.setAttribute('aria-pressed',m==='normal');bD.setAttribute('aria-pressed',m==='dr');
+ans.textContent=m==='dr'?'応答 → 10.20.0.10（大阪）':'応答 → 10.10.0.10（東京）';ans.style.fill=m==='dr'?'#ff5c8a':'#8fd3ff'};
+bN.addEventListener('click',()=>set('normal'));bD.addEventListener('click',()=>set('dr'));
+for(const b of document.querySelectorAll('.cb')){const btn=document.createElement('button');btn.type='button';btn.className='cp';btn.textContent='コピー';
+btn.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(b.querySelector('code').textContent);btn.textContent='コピー済み'}catch(e){btn.textContent='コピー不可'}setTimeout(()=>btn.textContent='コピー',1500)});b.appendChild(btn)}
+}
+</script>
+</body>
+</html>

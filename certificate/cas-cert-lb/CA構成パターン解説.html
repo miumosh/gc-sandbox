@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CA構成パターン解説</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;600&family=Noto+Sans+JP:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 設計判断のための解説書。結論が先、落ち着いた技術資料。
+   IDEA: 印鑑の系図 ── ルート(実印)から下位(支社印)へ、どこに置くかを並べて比べる。
+   PICTURE: 用語の関係図と、5つの構成パターンを同じ枠組みで描いた小図。
+   COLOUR and TYPE: DR設計書と同じ deep sea 地、sky=推奨、pink=注意。Hanken Grotesk + Noto Sans JP。
+   LAYOUT: 結論 → 用語と関係 → 制約 → パターン図 → 星取表 → 選び方 → ベストプラクティス。 */
+:root{color-scheme:dark;--bg:#0a2540;--bg2:#0f2e4f;--line:#2a4a6e;--ink:#fff;--mut:#a9c1d9;--sky:#8fd3ff;--pink:#ff5c8a;--ok:#7be3b0;--warn:#ffd27a}
+:root[data-theme=light]{color-scheme:dark}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.7 "Hanken Grotesk","Noto Sans JP",system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(28px,4vw,56px) max(5vw,16px)}.alt{background:var(--bg2)}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-weight:300;font-size:clamp(30px,4.6vw,48px);line-height:1.12;margin:0 0 14px;text-wrap:balance}
+h2{font-weight:600;font-size:clamp(22px,2.6vw,30px);line-height:1.25;margin:0 0 6px;text-wrap:balance}
+h3{font-size:18px;margin:0 0 6px}
+.lead,.sub{color:var(--mut);max-width:72ch;margin:0 0 18px}
+.nav{display:flex;gap:6px;overflow-x:auto;padding:10px max(5vw,16px);border-block:1px solid var(--line);background:var(--bg)}
+.nav a{flex:none;color:var(--sky);text-decoration:none;font-size:14px;padding:6px 10px;border-radius:6px}
+.nav a:hover,.nav a:focus-visible{background:var(--bg2);outline:none}
+@media(min-width:900px){.nav{position:sticky;top:0;z-index:5}}
+html{scroll-padding-top:72px}
+.keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:14px;margin-top:22px}
+.key{border-top:2px solid var(--sky);padding-top:10px}.key.w{border-color:var(--pink)}
+.key b{display:block;font-size:17px}.key span{color:var(--mut);font-size:15px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600;font-size:13.5px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;overflow-wrap:anywhere}
+.dg{width:100%;height:auto;display:block;color:var(--ink);font-family:"Hanken Grotesk","Noto Sans JP",sans-serif}
+.dg .bx{fill:rgba(255,255,255,.05);stroke:var(--line);stroke-width:1.3}
+.dg .bx.w{stroke:#fff}.dg .bx.c{stroke:var(--sky)}.dg .bx.p{stroke:var(--pink)}.dg .bx.pd{stroke:var(--pink);stroke-dasharray:5 4;fill:rgba(255,92,138,.06)}
+.dg .rg{fill:none;stroke:var(--line);stroke-width:1.3;stroke-dasharray:6 5}
+.dg .t{fill:currentColor;font-size:13px;font-weight:600}.dg .s{fill:var(--mut);font-size:10.5px}
+.dg .rl{font-size:12.5px;font-weight:700}
+.dg .ln{stroke:var(--mut);stroke-width:1.4;fill:none}.dg .ln.p{stroke:var(--pink);stroke-dasharray:4 3}
+.dg .lab{fill:var(--mut);font-size:11px}.dg .lab.p{fill:var(--pink)}
+figcaption{color:var(--mut);font-size:14px;margin-top:8px}
+.cons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:14px;margin-top:6px}
+.con{border:1px solid var(--line);border-radius:8px;padding:12px 14px}.con b{display:block}
+.pats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:22px}
+.pat{border:1px solid var(--line);border-radius:12px;padding:18px;background:rgba(255,255,255,.02)}
+.pat.rec{border-color:var(--sky);background:rgba(143,211,255,.06)}.pat.ng{border-color:var(--pink);background:rgba(255,92,138,.05)}
+.tag{display:inline-block;font-size:12.5px;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:6px;vertical-align:2px;white-space:nowrap}
+.tag.b{background:var(--sky);color:#0a2540}.tag.g{border:1px solid var(--line);color:var(--mut)}.tag.r{background:var(--pink);color:#fff}
+.pc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:10px;font-size:14.5px}
+@media(max-width:600px){.pc{grid-template-columns:minmax(0,1fr)}}
+.pc ul{margin:4px 0 0;padding-left:1.2em}.pc h4{margin:0;font-size:13.5px;color:var(--mut)}
+.scroll,pre{overflow-x:auto}
+.star{min-width:900px}.star td,.star th{text-align:center;vertical-align:middle}.star td:first-child,.star th:first-child{text-align:left}
+.o{color:var(--ok);font-size:19px}.x{color:var(--pink);font-size:19px;font-weight:700}.t3{color:var(--warn);font-size:19px}
+.star tr.best td{background:rgba(143,211,255,.12)}.star tr.best td:first-child{border-left:4px solid var(--sky)}
+.flow{display:grid;gap:10px;max-width:820px}
+.q{border:1px solid var(--line);border-radius:10px;padding:12px 16px;background:var(--bg)}
+.ans{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+@media(max-width:600px){.ans{grid-template-columns:minmax(0,1fr)}}
+.a{border-radius:10px;padding:12px 16px;border:1px solid var(--line)}.a b{display:block}.a.b{border-color:var(--sky)}.a.n{border-color:var(--pink)}
+.bp{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:20px}
+.bp section{border-top:2px solid var(--sky);padding-top:10px}
+.bp ul{padding-left:1.2em;margin:6px 0 0}.bp li{margin-bottom:6px}
+.small{font-size:13.5px;color:var(--mut)}
+.note{border:1px solid var(--line);border-left:4px solid var(--pink);border-radius:6px;padding:12px 16px;margin:16px 0;background:rgba(255,92,138,.06)}
+a{color:var(--sky)}a:focus-visible{outline:2px solid var(--sky);outline-offset:2px}
+.bars{display:grid;gap:12px;margin:8px 0 6px;max-width:980px}
+.br{display:grid;grid-template-columns:5.5em minmax(0,1fr) minmax(0,1.2fr);gap:12px;align-items:center}
+@media(max-width:700px){.br{grid-template-columns:minmax(0,1fr)}}
+.bt{height:22px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
+.bf{height:100%;background:var(--sky);border-radius:4px}.bf.p{background:var(--pink)}
+.bv{font-weight:700;font-size:18px;white-space:nowrap}.bv span{display:block;font-weight:400;font-size:13.5px;color:var(--mut);white-space:normal}
+.bpl ul{list-style:none;padding:0;margin:0 0 8px}
+.bpl li{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}
+@media(max-width:700px){.bpl li{grid-template-columns:minmax(0,1fr);gap:4px}}
+.bpl li>div:last-child{font-size:13.5px;color:var(--mut)}
+.bpl h3{margin:22px 0 4px;color:var(--sky)}
+.src{display:inline-block;font-size:11.5px;font-weight:700;padding:1px 8px;border-radius:99px;margin-right:4px;white-space:nowrap}
+.src.g{background:var(--sky);color:#0a2540}.src.o{background:var(--warn);color:#0a2540}.src.m{border:1px solid var(--mut);color:var(--mut)}
+td.o .small,td.x .small{display:block;font-size:12.5px;line-height:1.45;margin-top:4px}
+#risk table td:first-child{min-width:9em}
+.refs{padding-left:1.2em}.refs li{margin-bottom:4px}
+
+@media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--line)}.stack td{display:flow-root;border:0;padding:3px 0;padding-inline-start:8em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;white-space:normal;color:var(--mut)}.stack td:empty{display:none}}
+</style><script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script></head>
+<body>
+
+<header class="band"><div class="wrap">
+<h1>CAS・CAプール・CA・Certificate Manager：<br>構成パターンの選び方</h1>
+<p class="lead">東京・大阪のリージョナル内部ALBに、同じFQDN（test.sample.com）の証明書を自動更新で配置する、プライベート通信のみの構成が前提です。用語の関係、仕様上の制約、5つの構成パターン、ベストプラクティスを1枚にまとめました。</p>
+<div class="keys">
+<div class="key"><b>料金はCAの数で決まる</b><span>CAプールの数ではなく、CA（と発行した証明書）の数に料金がかかる。構成はCAの数で考える。</span></div>
+<div class="key"><b>CAプールは最低2つ（東京と大阪）</b><span>CAプール、発行構成、証明書は同じリージョンに揃える必要があるため。</span></div>
+<div class="key"><b>社内ルートCAがあれば、パターン③が最適</b><span>2プール・2CAで、ベストプラクティスも守れて、端末への配布もいらない。ない場合は、標準（3プール）か、コスト優先なら①。</span></div>
+<div class="key w"><b>ルートCAと下位CAを同じプールに入れない</b><span>発行するCAが自動で振り分けられ、証明書の発行元がばらばらになる。</span></div>
+</div>
+</div></header>
+
+<nav class="nav" aria-label="目次"><a href="#terms">用語と関係</a><a href="#rules">仕様上の制約</a><a href="#patterns">構成パターン</a><a href="#risk">ルートCAの鍵の危険性</a><a href="#compare">星取表</a><a href="#choose">選び方</a><a href="#bp">ベストプラクティス</a></nav>
+
+<section class="band alt" id="terms"><div class="wrap">
+<h2>用語と関係：「印鑑」と「窓口」と「保管庫」</h2>
+<p class="sub">CASは認証局（CA）を動かす役所、CAプールは窓口、CAは印鑑です。Certificate Managerは、LBに設定する証明書の保管庫です。この2つのサービスを結ぶのが、発行構成です。</p>
+<figure>
+<svg class="dg" viewBox="0 0 1000 300" role="img" aria-label="端末はルートCAを信頼する。ルートCAが下位CAに署名し、下位CAがサーバ証明書を発行する。Certificate Managerの発行構成がCAプールを参照し、証明書は内部ALBに設定される。">
+<defs><marker id="m0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a9c1d9"/></marker></defs>
+<rect class="rg" x="10" y="64" width="470" height="150" rx="12"/><text class="rl" x="26" y="86" fill="#8fd3ff">CAS（Certificate Authority Service）</text>
+<rect class="rg" x="520" y="64" width="300" height="226" rx="12"/><text class="rl" x="536" y="86" fill="#8fd3ff">Certificate Manager</text>
+<rect class="bx w" x="30" y="6" width="200" height="44" rx="8"/><text class="t" x="130" y="26" text-anchor="middle">端末の信頼ストア</text><text class="s" x="130" y="42" text-anchor="middle">ルートCAだけを登録</text>
+<rect class="bx" x="30" y="100" width="200" height="96" rx="8"/><text class="s" x="42" y="118">CAプール（ルート用）</text>
+<rect class="bx w" x="46" y="128" width="168" height="54" rx="6"/><text class="t" x="130" y="151" text-anchor="middle">ルートCA</text><text class="s" x="130" y="169" text-anchor="middle">本社の実印・自分に署名</text>
+<rect class="bx" x="260" y="100" width="200" height="96" rx="8"/><text class="s" x="272" y="118">CAプール（下位用・リージョンごと）</text>
+<rect class="bx" x="276" y="128" width="168" height="54" rx="6"/><text class="t" x="360" y="151" text-anchor="middle">下位CA</text><text class="s" x="360" y="169" text-anchor="middle">支社の印鑑・日常の発行</text>
+<path class="ln" d="M214,155 H272" marker-end="url(#m0)"/><text class="lab" x="243" y="147" text-anchor="middle">署名</text>
+<path class="ln" d="M130,50 V124" marker-end="url(#m0)"/><text class="lab" x="138" y="90">信頼</text>
+<rect class="bx" x="540" y="100" width="260" height="54" rx="8"/><text class="t" x="670" y="123" text-anchor="middle">発行構成</text><text class="s" x="670" y="141" text-anchor="middle">同じリージョンのCAプールを指定</text>
+<rect class="bx c" x="540" y="180" width="260" height="54" rx="8"/><text class="t" x="670" y="203" text-anchor="middle">証明書（Googleマネージド・プライベート）</text><text class="s" x="670" y="221" text-anchor="middle">test.sample.com・自動更新</text>
+<path class="ln" d="M540,127 H464" marker-end="url(#m0)"/><text class="lab" x="502" y="120" text-anchor="middle">参照</text>
+<path class="ln" d="M444,182 V207 H536" marker-end="url(#m0)"/><text class="lab" x="490" y="225" text-anchor="middle">発行・更新</text>
+<path class="ln" d="M670,154 V176" marker-end="url(#m0)"/>
+<rect class="bx c" x="860" y="180" width="130" height="54" rx="8"/><text class="t" x="925" y="203" text-anchor="middle">内部ALB</text><text class="s" x="925" y="221" text-anchor="middle">リージョナル</text>
+<path class="ln" d="M800,207 H856" marker-end="url(#m0)"/><text class="lab" x="828" y="199" text-anchor="middle">直接設定</text>
+<text class="s" x="536" y="270">CAプール・発行構成・証明書・ALBは、すべて同じリージョンに置く</text>
+</svg>
+<figcaption>端末は証明書を下からたどり、ルートCAに行き着けば信頼します。ルートCAを使うのは下位CAに署名するときだけで、日常の発行・更新は下位CAが行います。</figcaption>
+</figure>
+<div class="scroll" style="margin-top:22px">
+<table class="stack">
+<thead><tr><th>用語</th><th>何か</th><th>置き場所</th><th>たとえ</th></tr></thead>
+<tbody>
+<tr><td><b>CAS</b></td><td>Google Cloudが提供する、自分専用の認証局を作って動かすサービス</td><td>—</td><td>印鑑を作って保管する役所</td></tr>
+<tr><td><b>CAプール</b></td><td>CAを入れる入れ物。証明書の発行はプールに依頼する。発行のルールや権限はプール単位で設定する</td><td>リージョン必須（グローバルはない）</td><td>窓口</td></tr>
+<tr><td><b>CA</b></td><td>証明書に署名する実体。1つの鍵と1枚の証明書からなる</td><td>所属するプールと同じ</td><td>印鑑</td></tr>
+<tr><td><b>ルートCA</b></td><td>信頼の大元。自分で自分に署名した証明書を持ち、端末の信頼ストアに入れる</td><td>—</td><td>本社の実印</td></tr>
+<tr><td><b>下位CA</b></td><td>ルートCAに署名されたCA。日常の証明書の発行・更新を担当する</td><td>—</td><td>支社の印鑑</td></tr>
+<tr><td><b>社内ルートCA</b></td><td>社内ですでに運用しているCA（AD CSなど）。全端末に配布済みのことが多い</td><td>Google Cloudの外</td><td>すでに使っている本社の実印</td></tr>
+<tr><td><b>Certificate Manager</b></td><td>LBに設定する証明書を管理するサービス</td><td>グローバル／リージョナル</td><td>証明書の保管庫</td></tr>
+<tr><td><b>発行構成</b></td><td>Certificate Managerと、CASのCAプールを結びつける設定</td><td>証明書・CAプールと同じリージョン</td><td>発行依頼書</td></tr>
+<tr><td><b>信頼ストア</b></td><td>端末が信頼するルートCAの一覧</td><td>各端末</td><td>知っている実印の一覧</td></tr>
+</tbody></table>
+</div>
+</div></section>
+
+<section class="band" id="rules"><div class="wrap">
+<h2>仕様上の制約：どのパターンでも守る4つのルール</h2>
+<div class="cons">
+<div class="con"><b>CAプールはリージョンの指定が必須</b><span class="small">グローバルなCAプールはありません。</span></div>
+<div class="con"><b>CAプール、発行構成、証明書は同じリージョンに置く</b><span class="small">大阪の証明書を東京のCAプールから発行することはできません。</span></div>
+<div class="con"><b>リージョナルALBには、同じリージョンの証明書を直接設定する</b><span class="small">グローバル証明書や証明書マップは使えません。</span></div>
+<div class="con"><b>下位CAの発行元は、別リージョンにあってもよい</b><span class="small">大阪の下位CAを、東京のルートCA（または社外のCA）で署名できます。</span></div>
+</div>
+</div></section>
+
+<section class="band alt" id="patterns"><div class="wrap">
+<h2>構成パターン：同じ枠組みで5つを比べる</h2>
+<p class="sub">どの図も、上が端末の信頼ストア（またはGoogle Cloud外のルートCA）、左が東京、右が大阪です。白い枠はルートCA、青い枠はALBに設定する証明書、ピンクは注意点です。</p>
+<div class="pats">
+<article class="pat"><h3>標準：3プール・3CA <span class="tag b">社内ルートCAがない場合の基本形</span></h3><div class="fig" data-p="std"></div>
+<div class="pc"><div><h4>良い点</h4><ul><li>ベストプラクティスどおり。ルートCAの鍵を使う機会が最小限</li><li>端末に配るルートは1つ</li><li>東京が被災しても、大阪で更新が続く</li></ul></div><div><h4>気になる点</h4><ul><li>CAが3つ分の料金がかかる</li><li>Googleは、ルートCAを専用のプロジェクトに置くことを推奨している（<a href="#bp">根拠</a>）</li></ul></div></div></article>
+<article class="pat rec"><h3>③ 社内ルートCAを使う：2プール・2CA <span class="tag b">最適</span></h3><div class="fig" data-p="p3"></div>
+<div class="pc"><div><h4>良い点</h4><ul><li>CA2つで、ベストプラクティスも守れる</li><li>端末への配布が不要（配布済みのルートを使う）</li><li>ルートがGoogle Cloudの外にあるので、被災の影響を受けない</li></ul></div><div><h4>気になる点</h4><ul><li>下位CAを作るときと更新するとき（数年に1回）に、社内ルートCAでCSRに署名する作業が必要</li></ul></div></div></article>
+<article class="pat"><h3>① 東京はルートCAから直接発行：2プール・2CA <span class="tag g">コスト優先なら</span></h3><div class="fig" data-p="p1"></div>
+<div class="pc"><div><h4>良い点</h4><ul><li>CAが1つ減る</li><li>端末に配るルートは1つのまま</li></ul></div><div><h4>気になる点</h4><ul><li>ルートCAの鍵を、日常の発行・更新のたびに使う（<a href="#risk" style="color:var(--sky)">危険性の解説</a>）</li><li>ルートCAに問題が起きると、全体を作り直す必要がある</li></ul></div></div></article>
+<article class="pat"><h3>② ルートCAを東京・大阪で別々に作る：2プール・2CA <span class="tag g">特別な理由がなければ不採用</span></h3><div class="fig" data-p="p2"></div>
+<div class="pc"><div><h4>良い点</h4><ul><li>東京と大阪が完全に独立する</li></ul></div><div><h4>気になる点</h4><ul><li>端末に配るルートが2つになり、配布と期限の管理が2倍</li><li>ルートCAの鍵を、日常の発行・更新のたびに使う</li></ul></div></div></article>
+<article class="pat ng"><h3>NG：1つのプールにルートCAと下位CAを同居させる <span class="tag r">採用しない</span></h3><div class="fig" data-p="ng"></div>
+<div class="pc"><div><h4>起きること</h4><ul><li>プールは、プール内の有効なCAから発行するCAを自動で振り分ける</li><li>東京の証明書が、ルートCAから直接だったり下位CAからだったりして、ばらばらになる</li></ul></div><div><h4>結果</h4><ul><li>①の欠点を抱えたまま、CAは3つ分の料金がかかる</li><li>構成がわかりにくく、トラブルの原因を追いにくい</li></ul></div></div></article>
+</div>
+</div></section>
+
+<section class="band" id="risk"><div class="wrap">
+<h2>ルートCAの鍵を「日常的に使う」とは：パターン①・②の危険性</h2>
+<p class="sub">これまで「毎日使う」と書いてきましたが、正確には「証明書を発行・自動更新するたびに使う」という意味です。Googleマネージド証明書は有効期間が90日で、期限の約1か月前に更新が始まります。そのためパターン①では、東京の証明書1枚につき、年に6回ほどルートCAの鍵で署名することになります。</p>
+
+<h3>1. ルートCAの鍵が使われる回数（5年間の試算）</h3>
+<div class="bars">
+<div class="br"><div class="bl"><b>標準・③</b></div><div class="bt"><div class="bf" style="width:6.5%"></div></div><div class="bv">約2回<span>下位CAを作るとき（東京・大阪の2回）だけ。更新は5年に1回程度</span></div></div>
+<div class="br"><div class="bl"><b>①</b></div><div class="bt"><div class="bf p" style="width:100%"></div></div><div class="bv">約31回<span>大阪の下位CAを作るときの1回に加えて、東京の証明書を発行・更新するたびに使う（約60日ごと）</span></div></div>
+</div>
+<p class="small">試算の前提：証明書は東京1枚、下位CAの有効期間は5年、Googleマネージド証明書は約60日ごとに更新される。証明書やFQDNが増えると、①の回数はその分だけ増えます。</p>
+
+<h3>2. 問題が起きたときの影響範囲</h3>
+<figure>
+<svg class="dg" viewBox="0 0 900 300" role="img" aria-label="下位CAに問題が起きた場合は、その下位CAと証明書を作り直すだけで、端末は変更不要。ルートCAに問題が起きた場合は、東京・大阪のすべての証明書が無効になり、全端末に新しいルート証明書を配り直す必要がある。">
+<defs><marker id="mr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a9c1d9"/></marker></defs>
+<rect class="rg" x="10" y="10" width="430" height="280" rx="12"/>
+<text class="rl" x="26" y="34" fill="#8fd3ff">標準：下位CA 東京に問題が起きた場合</text>
+<rect class="bx w" x="150" y="50" width="140" height="42" rx="6"/><text class="t" x="220" y="68" text-anchor="middle">ルートCA</text><text class="s" x="220" y="84" text-anchor="middle">影響なし</text>
+<rect class="bx p" x="50" y="126" width="150" height="42" rx="6"/><text class="t" x="125" y="144" text-anchor="middle">下位CA 東京</text><text class="s" x="125" y="160" text-anchor="middle">失効 → 作り直す</text>
+<path d="M56,130 L194,164 M194,130 L56,164" stroke="#ff5c8a" stroke-width="2" opacity=".55"/>
+<rect class="bx" x="240" y="126" width="150" height="42" rx="6"/><text class="t" x="315" y="144" text-anchor="middle">下位CA 大阪</text><text class="s" x="315" y="160" text-anchor="middle">影響なし</text>
+<rect class="bx c" x="50" y="198" width="150" height="38" rx="6"/><text class="t" x="125" y="214" text-anchor="middle">証明書 東京</text><text class="s" x="125" y="229" text-anchor="middle">新しい下位CAから再発行</text>
+<rect class="bx c" x="240" y="198" width="150" height="38" rx="6"/><text class="t" x="315" y="214" text-anchor="middle">証明書 大阪</text><text class="s" x="315" y="229" text-anchor="middle">影響なし</text>
+<path class="ln" d="M190,92 L130,124" marker-end="url(#mr)"/><path class="ln" d="M250,92 L310,124" marker-end="url(#mr)"/>
+<path class="ln" d="M125,168 V196" marker-end="url(#mr)"/><path class="ln" d="M315,168 V196" marker-end="url(#mr)"/>
+<text x="225" y="262" text-anchor="middle" style="fill:#7be3b0;font-size:14px;font-weight:700">端末：変更なし（ルートCAは同じ）</text>
+<text class="s" x="225" y="280" text-anchor="middle">影響は東京の証明書だけ。大阪は動き続ける</text>
+<rect class="rg" x="460" y="10" width="430" height="280" rx="12" style="stroke:#ff5c8a"/>
+<text class="rl" x="476" y="34" fill="#ff5c8a">パターン①：ルートCAに問題が起きた場合</text>
+<rect class="bx p" x="600" y="50" width="140" height="42" rx="6" style="fill:rgba(255,92,138,.18)"/><text class="t" x="670" y="68" text-anchor="middle">ルートCA</text><text class="s" x="670" y="84" text-anchor="middle">作り直すしかない</text>
+<path d="M606,54 L734,88 M734,54 L606,88" stroke="#ff5c8a" stroke-width="2" opacity=".6"/>
+<rect class="bx pd" x="500" y="126" width="150" height="42" rx="6"/><text class="t" x="575" y="144" text-anchor="middle">証明書 東京</text><text class="s" x="575" y="160" text-anchor="middle">信頼できなくなる</text>
+<rect class="bx pd" x="690" y="126" width="150" height="42" rx="6"/><text class="t" x="765" y="144" text-anchor="middle">下位CA 大阪</text><text class="s" x="765" y="160" text-anchor="middle">信頼できなくなる</text>
+<rect class="bx pd" x="690" y="198" width="150" height="38" rx="6"/><text class="t" x="765" y="214" text-anchor="middle">証明書 大阪</text><text class="s" x="765" y="229" text-anchor="middle">信頼できなくなる</text>
+<path class="ln p" d="M640,92 L580,124" marker-end="url(#mr)"/><path class="ln p" d="M700,92 L760,124" marker-end="url(#mr)"/><path class="ln p" d="M765,168 V196" marker-end="url(#mr)"/>
+<text x="675" y="262" text-anchor="middle" style="fill:#ff5c8a;font-size:14px;font-weight:700">端末：全台に新しいルートCAを配り直す</text>
+<text class="s" x="675" y="280" text-anchor="middle">東京・大阪の全証明書を作り直し。配布が終わるまで復旧できない</text>
+</svg>
+<figcaption>下位CAなら、失効させて作り直すだけで済みます。ルートCAは信頼の大元なので、問題が起きると全体に影響し、全端末への再配布が必要になります。</figcaption>
+</figure>
+
+<h3>3. 具体的な危険性</h3>
+<div class="scroll">
+<table class="stack">
+<thead><tr><th>危険性</th><th>何が起きるか</th><th>標準・③</th><th>①・②</th><th>根拠</th></tr></thead>
+<tbody>
+<tr><td><b>ルートCAで署名できる経路が、常に開いている</b></td><td>①では、Certificate Managerが日常的にルートCAのプールへ発行を依頼します。そのため、ルートCAのプールに発行の権限を付けたままにする必要があります。権限の設定ミスや誤操作があると、ルートCAが署名した証明書が意図せず発行されるおそれがあります。</td><td class="o">◎<br><span class="small">ルートのプールは、下位CAを作るとき以外は誰も触らない</span></td><td class="x">×</td><td class="small"><a href="https://docs.aws.amazon.com/privateca/latest/userguide/ca-best-practices.html">AWS Private CA best practices</a>（ルートCAから直接発行すると、アクセスを絞れなくなる）／<a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a>（ルートCAの使用を監視・アラート対象にする）</td></tr>
+<tr><td><b>問題が起きたときの影響範囲が全体に及ぶ</b></td><td>ルートCAに問題が起きると、その下のすべての証明書が信頼できなくなります。新しいルートCAを作って全端末に配り直す必要があり、それが終わるまで新しい証明書も発行できません。</td><td class="o">◎<br><span class="small">問題は下位CAの範囲で止められる</span></td><td class="x">×</td><td class="small"><a href="https://docs.cloud.google.com/certificate-authority-service/docs/certificate-authority-settings">CA settings</a>（ルートCAの変更は難しいため、保護を推奨）／<a href="https://docs.aws.amazon.com/privateca/latest/userguide/ca-best-practices.html">AWS Private CA best practices</a></td></tr>
+<tr><td><b>失効させて切り離すことができない</b></td><td>ルートCAは自分で自分に署名しているので、失効させるという手段がありません。信頼をやめるには、全端末から削除するしかありません。下位CAなら、失効させて作り直せます。</td><td class="o">◎<br><span class="small">下位CAは失効もローテーションも簡単</span></td><td class="x">×</td><td class="small"><a href="https://docs.cloud.google.com/certificate-authority-service/docs/create-subordinate-ca">Create a subordinate CA</a>（下位CAはルートCAより失効・ローテーションが容易）</td></tr>
+<tr><td><b>用途ごとに制約を分けられない</b></td><td>発行ポリシーはCAプール単位で、名前制約はCAの証明書に設定します。ルートCAから直接発行すると、「下位CAへの署名」と「サーバ証明書の発行」に同じプール・同じCAの設定がかかるので、用途ごとに絞り込みにくくなります。</td><td class="o">○</td><td class="t3">△</td><td class="small"><a href="https://docs.cloud.google.com/certificate-authority-service/docs/policy-controls">Overview of policy controls</a></td></tr>
+</tbody></table>
+</div>
+<div class="note"><strong>冷静な評価：</strong>CASの鍵はHSM（専用のハードウェア）で保護されていて、外に取り出すことはできません（<a href="https://docs.cloud.google.com/certificate-authority-service/docs/best-practices">CAS best practices</a>）。そのため、鍵そのものが盗まれる可能性は低いです。現実的なリスクは、「権限の設定ミスや誤発行」と「問題が起きたときの復旧範囲の大きさ」の2つです。社内限定の小規模なシステムで、ルートCAのプールの権限を厳しく管理し、ルートCAの使用を監視するアラートを入れられるなら、①を選ぶのも現実的な判断です。</div>
+</div></section>
+
+<section class="band alt" id="compare"><div class="wrap">
+<h2>星取表：社内ルートCAがあれば③、なければ標準</h2>
+<div class="scroll">
+<table class="star">
+<thead><tr><th>パターン</th><th>プール数</th><th>CA数（料金）</th><th>端末に配るルートが1つ</th><th>ルートCAの鍵を日常の発行に使わない</th><th>東京被災中も大阪で更新が続く</th><th>ベストプラクティス</th><th>判定</th></tr></thead>
+<tbody>
+<tr><td><b>標準（3プール）</b></td><td>3</td><td>3</td><td class="o">◎</td><td class="o">◎</td><td class="o">◎</td><td class="o">◎</td><td><span class="tag g">社内ルートCAがなければ</span></td></tr>
+<tr class="best"><td><b>③ 社内ルートCAを使う</b></td><td>2</td><td>2</td><td class="o">◎<span class="small">（配布済み）</span></td><td class="o">◎</td><td class="o">◎</td><td class="o">◎</td><td><span class="tag b">最適</span></td></tr>
+<tr><td>① 東京はルートCAから直接発行</td><td>2</td><td>2</td><td class="o">◎</td><td class="x">×</td><td class="o">◎</td><td class="t3">△</td><td><span class="tag g">コスト優先なら</span></td></tr>
+<tr><td>② ルートCAを別々に作る</td><td>2</td><td>2</td><td class="x">×<span class="small">（2つ）</span></td><td class="x">×</td><td class="o">◎</td><td class="t3">△</td><td><span class="tag g">不採用</span></td></tr>
+<tr><td>NG：同じプールに同居</td><td>2</td><td>3</td><td class="o">◎</td><td class="x">×</td><td class="o">◎</td><td class="x">×</td><td><span class="tag r">不可</span></td></tr>
+</tbody></table>
+</div>
+<p class="small">◎ 満たす　△ 一部外れる　× 満たさない</p>
+</div></section>
+
+<section class="band" id="choose"><div class="wrap">
+<h2>選び方：質問2つで決まる</h2>
+<div class="flow">
+<div class="q"><b>Q1.</b> 社内にルートCA（AD CSなど）があり、全端末に配布済みですか？</div>
+<div class="ans"><div class="a b"><b>はい → パターン③</b><span class="small">社内ルートCAで、東京・大阪の下位CAに署名します。</span></div><div class="a"><b>いいえ → Q2へ</b></div></div>
+<div class="q"><b>Q2.</b> ルートCAの鍵の管理について、厳しいセキュリティ要件がありますか？</div>
+<div class="ans"><div class="a b"><b>はい（または迷う） → 標準（3プール）</b><span class="small">迷うなら、ベストプラクティスどおりの標準を選びます。</span></div><div class="a n"><b>いいえ、コストを優先したい → パターン①</b><span class="small">ルートCAの鍵を日常的に使うリスク（<a href="#risk" style="color:var(--sky)">解説</a>）を受け入れられる場合だけ。</span></div></div>
+</div>
+</div></section>
+
+<section class="band alt" id="bp"><div class="wrap">
+<h2>ベストプラクティス（根拠となるドキュメント付き）</h2>
+<p class="sub">各項目の右に、根拠となるドキュメントを付けました。<span class="src g">Google公式</span>はGoogle Cloudのドキュメントに書かれている推奨事項、<span class="src o">一般原則</span>はGoogleのドキュメントには明記がなく、他社（AWS・Microsoft）のドキュメントで示されているPKI全般の考え方、<span class="src m">目安</span>は公式の根拠がない、本資料独自の推奨値です。</p>
+<div class="bpl">
+<h3>CAの階層と配置</h3>
+<ul>
+<li><div>ルートCAは<b>専用のGoogle Cloudプロジェクト</b>に分け、発行用（下位）のCAプールは別のプロジェクトに置く。発行用のプールは、リージョン・環境（本番・検証）・用途ごとに分ける</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a></div></li>
+<li><div>CAの階層は、できるだけ単純に保つ（ルートCA → 少数の下位CA → 証明書）</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a></div></li>
+<li><div>CASはリージョナルなサービスだが、あるリージョンのルートCAで、別のリージョンの下位CAに署名できる（東京のルートCAで大阪の下位CAに署名する構成の根拠）</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a></div></li>
+<li><div>ルートCAは変更が難しい（変えるには、それを信頼している全端末を更新する必要がある）ため、保護する</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/certificate-authority-settings">Determine CA settings</a></div></li>
+<li><div>下位CAは、ルートCAより失効やローテーションが簡単。発行の用途ごとに下位CAを分けられる</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/create-subordinate-ca">Create a subordinate CA</a></div></li>
+<li><div><b>ルートCAは下位CAへの署名にだけ使い、サーバ証明書は下位CAから発行する</b>（パターン①・②を推奨しない理由）</div><div><span class="src o">一般原則</span> <a href="https://docs.aws.amazon.com/privateca/latest/userguide/ca-best-practices.html">AWS Private CA best practices</a>／<a href="https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2003/cc738786(v=ws.10)">Microsoft Certificate Services best practices</a>（ルートCAはオフラインで保護する）</div></li>
+<li><div>外部のCA（社内ルートCAなど）で、CASの下位CAに署名できる。CASが出力するCSRに外部のCAで署名し、署名済みの証明書をCASに取り込む（パターン③の根拠）</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/ca-service-concepts">CA Service concepts</a></div></li>
+</ul>
+<h3>CAプール</h3>
+<ul>
+<li><div>CAプールは、<b>プール内の有効なCAの間で、証明書の発行を振り分ける</b>。役割の違うCA（ルートと下位）を同じプールに入れない（NGパターンの根拠）</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/ca-pool">Overview of CA pools</a></div></li>
+<li><div>発行用のCAには、CAプールを使う。CAプールは、発行ポリシーとIAMポリシーを共有するCAの集まり</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a></div></li>
+<li><div>ほとんどの場合はEnterprise階層を使う。DevOps階層は失効に対応しておらず、発行した証明書も保存されないので、失効の必要がない短命な証明書にだけ使う</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/best-practices">CAS best practices</a>／<a href="https://docs.cloud.google.com/certificate-authority-service/docs/tiers">Select the operation tiers</a></div></li>
+<li><div>発行ポリシーで、発行してよいドメイン・鍵の種類・有効期間を制限する。CAの証明書に名前制約（例：<code>sample.com</code> 配下だけ）を設定し、許可していないドメインへの発行を防ぐ</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/policy-controls">Overview of policy controls</a></div></li>
+</ul>
+<h3>鍵</h3>
+<ul>
+<li><div>CAの鍵はCloud HSMで保護され、取り出せない。特別な要件がなければ、Googleが所有・管理する鍵を使う</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/best-practices">CAS best practices</a></div></li>
+<li><div>ECDSAは、性能と安全性のバランスが最も良い。CAの有効期間に関係なく、CAの鍵を定期的にローテーションする手順を用意しておく</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/best-practices">CAS best practices</a></div></li>
+<li><div>有効期間の目安：ルートCAは10年程度、下位CAは3〜5年程度</div><div><span class="src m">目安</span> Googleのドキュメントに明記はありません。組織のポリシーに合わせて決めてください</div></li>
+</ul>
+<h3>権限（IAM）</h3>
+<ul>
+<li><div>1人に複数のロールを同時に付けない。幅広い権限が必要なら、カスタムロールを作る</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-authority-service/docs/best-practices">CAS best practices</a></div></li>
+<li><div>Certificate Managerのサービスエージェントには、下位CAのプールに対する <code>roles/privateca.certificateRequester</code> だけを付ける。ルートCAのプールを操作できる人は最小限にする</div><div><span class="src m">目安</span> 最小権限の原則を、この構成に当てはめたもの</div></li>
+</ul>
+<h3>監視と更新</h3>
+<ul>
+<li><div>ログを使ったアラートを設定する：ルートCAの使用、証明書の期限が近い、CAの期限まで30日、証明書の作成失敗が多い、CAの鍵（KMS）の問題</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a></div></li>
+<li><div>Googleマネージド証明書は有効期間90日で、期限の約1か月前に自動更新が始まる。下位CAそのものは自動では更新されないので、期限前に入れ替える計画を立てておく</div><div><span class="src g">Google公式</span> <a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a></div></li>
+<li><div>普段使わない大阪側も同じように監視し、年1回の切替訓練で、証明書が有効で検証が通ることを確認する</div><div><span class="src m">目安</span> DR運用としての推奨</div></li>
+</ul>
+</div>
+<h3 style="margin-top:28px">参照ドキュメント一覧</h3>
+<ul class="refs">
+<li><a href="https://docs.cloud.google.com/certificate-manager/docs/certificate-manager-best-practices">Certificate Manager best practices</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/best-practices">Best practices for Certificate Authority Service</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/ca-pool">Overview of CA pools</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/certificate-authority-settings">Determine certificate authority settings</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/create-subordinate-ca">Create a subordinate certificate authority</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/ca-service-concepts">Certificate Authority Service concepts</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/policy-controls">Overview of policy controls</a>（Google Cloud）</li>
+<li><a href="https://docs.cloud.google.com/certificate-authority-service/docs/tiers">Select the operation tiers</a>（Google Cloud）</li>
+<li><a href="https://docs.aws.amazon.com/privateca/latest/userguide/ca-best-practices.html">AWS Private CA best practices</a>（AWS：PKIの一般原則の参考）</li>
+<li><a href="https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2003/cc738786(v=ws.10)">Certificate Services Best practices</a>（Microsoft：PKIの一般原則の参考）</li>
+</ul>
+</div></section>
+
+<script>
+{
+const B=(x,y,w,h,t,s,c='')=>`<rect class="bx ${c}" x="${x}" y="${y}" width="${w}" height="${h}" rx="6"/><text class="t" x="${x+w/2}" y="${s?y+17:y+h/2+5}" text-anchor="middle">${t}</text>`+(s?`<text class="s" x="${x+w/2}" y="${y+32}" text-anchor="middle">${s}</text>`:'');
+const A=(d,c='')=>`<path class="ln ${c}" d="${d}" marker-end="url(#mk)"/>`;
+const L=(x,y,t,c='')=>`<text class="lab ${c}" x="${x}" y="${y}" text-anchor="middle">${t}</text>`;
+const reg=`<rect class="rg" x="8" y="70" width="198" height="164" rx="10"/><text class="rl" x="18" y="88" fill="#8fd3ff">東京</text><rect class="rg" x="214" y="70" width="198" height="164" rx="10"/><text class="rl" x="224" y="88" fill="#ff5c8a">大阪</text>`;
+const trust=(t,c='w')=>B(110,10,200,40,'端末の信頼ストア',t,c);
+const certs=B(20,200,174,28,'cert-tokyo','','c')+B(226,200,174,28,'cert-osaka','','c')+A('M313,192 V196');
+const P={
+std:trust('ルートCA 1つ')+B(20,98,174,40,'ルートCA','root-pool','w')+B(20,152,174,40,'下位CA 東京','sub-pool-tokyo')+B(226,152,174,40,'下位CA 大阪','sub-pool-osaka')+certs+A('M107,138 V148')+A('M107,192 V196')+A('M194,112 H313 V148')+L(260,106,'署名')+L(150,145,'署名'),
+p3:B(110,10,200,40,'社内ルートCA','AD CSなど（Google Cloudの外）','w')+B(20,152,174,40,'下位CA 東京','sub-pool-tokyo')+B(226,152,174,40,'下位CA 大阪','sub-pool-osaka')+certs+A('M107,192 V196')+A('M150,50 V60 H107 V148')+A('M270,50 V60 H313 V148')+L(107,125,'CSRに署名')+L(313,125,'CSRに署名'),
+p1:trust('ルートCA 1つ')+B(20,152,174,40,'ルートCA','root-pool','p')+B(226,152,174,40,'下位CA 大阪','sub-pool-osaka')+certs+A('M107,192 V196','p')+A('M194,172 H222')+L(208,166,'署名')+L(107,122,'ルートCAから直接発行','p'),
+p2:trust('ルートCA 2つ','p')+B(20,152,174,40,'ルートCA 東京','pool-tokyo','p')+B(226,152,174,40,'ルートCA 大阪','pool-osaka','p')+certs+A('M107,192 V196','p')+L(210,122,'つながりなし・完全に独立','p'),
+ng:trust('ルートCA 1つ')+`<rect class="bx pd" x="20" y="98" width="174" height="94" rx="8"/>`+B(28,106,76,40,'ルート','','w')+B(112,106,76,40,'下位','')+`<text class="lab p" x="107" y="172" text-anchor="middle">1つのプールに同居</text>`+B(226,152,174,40,'下位CA 大阪','sub-pool-osaka')+certs+A('M66,192 V196','p')+A('M150,192 V196','p')+A('M194,126 H210 V172 H222')+L(107,186,'発行元が振り分けられる','p')
+};
+document.querySelectorAll('.fig[data-p]').forEach((f,i)=>{const k=f.dataset.p;
+f.innerHTML=`<svg class="dg" viewBox="0 0 420 240" role="img" aria-label="${f.closest('.pat').querySelector('h3').firstChild.textContent.trim()}の構成図"><defs><marker id="mk" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a9c1d9"/></marker></defs>${reg}${P[k]}</svg>`.replaceAll('id="mk"',`id="mk${i}"`).replaceAll('#mk)',`#mk${i})`);});
+}
+</script>
+</body>
+</html>
